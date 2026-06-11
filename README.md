@@ -38,7 +38,7 @@ Then start a new session and say anything (Claude can't speak first) — or star
 ## How it works
 
 - Claude Code has documented settings for spinner customization: `spinnerVerbs` and `spinnerTipsOverride`. Both hot-reload — changes apply mid-session, no restart.
-- On setup, your own Claude writes the first 10 facts straight into the spinner (so it goes live in seconds), then tops the pool up to ~100 one-liners in `~/.claude/smart-spinner/facts.json` — you watch the facts rotate while it happens. Generation is the only step that costs tokens, and it runs in your normal session.
+- On setup, a fast headless model (`claude -p --model haiku`) writes the first 12 facts straight into the spinner — live in ~10 seconds — then a detached background job tops the pool up to ~100 one-liners in `~/.claude/smart-spinner/facts.json`. Your main session never composes facts, so setup stays fast even on heavyweight models; generation is the only step that costs tokens.
 - A tiny hook rotates a fresh shuffled batch of facts into `~/.claude/settings.json` on every session start and every message you send — and while Claude works, a background ticker (started on your message, stopped when the reply ends) swaps in the next fact every ~5 seconds. The engine is dependency-free Python (with a Node fallback), runs in milliseconds, and prints nothing.
 - Before its first write, the plugin backs up your settings to `~/.claude/smart-spinner/settings.backup.json`. `/smart-spinner:off` restores the spinner keys from that backup.
 

@@ -262,6 +262,18 @@ def main():
             print(len(load_facts()))
         except Exception:  # noqa: BLE001
             print(0)
+    elif cmd == "list":
+        try:
+            for f in load_facts():
+                print(f)
+        except Exception:  # noqa: BLE001
+            pass
+    elif cmd == "meta":
+        try:
+            doc = read_json_or(FACTS_PATH, {})
+            print(f"{doc.get('topic') or ''}\t{doc.get('language') or 'en'}")
+        except Exception:  # noqa: BLE001
+            print("\ten")
     else:
         # Hook/daemon paths (rotate/tick/off) stay silent, never break a session.
         try:

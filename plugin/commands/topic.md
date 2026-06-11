@@ -3,36 +3,32 @@ description: Pick a topic and generate a fresh pool of spinner facts
 argument-hint: "[topic, e.g. space, ancient Rome, octopuses — omit to be asked]"
 ---
 
-# Smart Spinner — generate the facts pool
+# Smart Spinner — set the topic
 
 Topic requested: $ARGUMENTS
 
-The goal: facts appear in the user's spinner within seconds, then the pool quietly grows to 100 in the same turn. Follow these steps exactly.
+This flow is mechanical: a fast headless model produces the facts, NOT you. Do not compose facts, do not deliberate — execute the steps immediately.
 
-1. If the topic above is empty, ask the user with the AskUserQuestion tool — one question in the language they converse in, 3-4 short topic options tailored to them, always including a "Surprise me" eclectic-mix option (science, history, nature, language, art). The tool adds an "Other" choice automatically so they can type their own; mention that. If AskUserQuestion is unavailable, ask in plain text. Wait for the answer.
+Script: `sh "${CLAUDE_PLUGIN_ROOT}/scripts/run.sh"`. If that placeholder is not expanded to a real path, use `sh "$(cat ~/.claude/smart-spinner/plugin-root)/scripts/run.sh"` instead.
 
-2. Facts language = the language the user converses in, unless they explicitly asked for another. Use it for the banner too.
+1. If the topic above is empty, ask with the AskUserQuestion tool — one question in the user's language, 3-4 short topic options tailored to them plus a "Surprise me" eclectic-mix option; mention they can type anything via the built-in "Other". Wait for the answer.
 
-**Fact rules** (apply to every batch below): one line each, aim ≤ 64 characters, hard max 80 (longer lines are silently dropped); no numbering, quotes, emoji or trailing punctuation; true and verifiable — never invent, swap anything uncertain for something certain without deliberating; surprising and counterintuitive over textbook, skip the famous facts everyone quotes; each line stands alone with zero context; diverse subtopics, no near-duplicates. Compose facts directly inside the commands — do not list, draft or echo them anywhere else, and do not reason fact-by-fact.
+2. Set `<lang>` = the language the user converses in (BCP-47, e.g. `ru`); `<banner>` = a short launch line in that language, ≤ 50 chars, e.g. "Smart Spinner включён: факты о космосе".
 
-3. **Go live in seconds** — run ONE Bash command with your 10 best facts, where the last argument is a launch banner in the user's language (≤ 50 chars, e.g. "Smart Spinner включён: факты о космосе"):
+3. Run (takes ~10 s — it calls a fast model for the first 12 facts and puts them live with a ✨ launch effect):
+
+   ```sh
+   sh "${CLAUDE_PLUGIN_ROOT}/scripts/run.sh" generate-first "<topic>" "<lang>" "<banner>"
+   ```
+
+4. If it printed a line starting with `ok`: run `sh "${CLAUDE_PLUGIN_ROOT}/scripts/run.sh" generate-rest` (returns instantly; a background job tops the pool up to ~100). Then reply with ONE short sentence in the user's language: facts are already live in the spinner and will quietly grow to ~100; `/smart-spinner:topic <new topic>` switches, `/smart-spinner:off` turns off. Done — nothing else.
+
+5. Fallback, ONLY if step 3 printed `error` or timed out: write 10 facts yourself in one pass —
 
    ```sh
    sh "${CLAUDE_PLUGIN_ROOT}/scripts/run.sh" add "<topic>" "<lang>" "<banner>" <<'FACTS'
-   fact one
-   fact two
-   ...ten facts total...
+   one fact per line, 10 lines
    FACTS
    ```
 
-   If `${CLAUDE_PLUGIN_ROOT}` was not expanded to a real path, the plugin root is stored in `~/.claude/smart-spinner/plugin-root` — use `sh "$(cat ~/.claude/smart-spinner/plugin-root)/scripts/run.sh"`. Last resort: `find ~/.claude/plugins -name run.sh -path '*smart-spinner*' 2>/dev/null | head -1` (never use a bare glob — zsh aborts on no match).
-
-   The script prints a status line. **Verify it**: it must start with `ok` and show `live_in_spinner` > 0.
-
-4. **If the status starts with `error` or nothing was printed** (e.g. a sandbox blocked the write), activate manually: read `~/.claude/settings.json`, then use the Edit tool to set exactly these two keys, preserving every other key: `"spinnerTipsOverride": {"tips": [<banner>, ...the 10 facts], "excludeDefault": true}` and `"spinnerVerbs": {"mode": "replace", "verbs": [<the facts ≤ 60 chars>]}`. Also ensure the pool file `~/.claude/smart-spinner/facts.json` exists (create with the Write tool): `{"topic": "<topic>", "language": "<lang>", "facts": [<the 10 facts>]}`.
-
-5. Tell the user in ONE short sentence (their language) that facts are already live in the spinner and the pool is topping up to 100 — they can watch it happen on this very message.
-
-6. **Top up to 100, same turn** — run the same `add` command three more times with 30 NEW facts each (no banner argument, no commentary in between, no duplicates of anything already added). If `add` reports an error, append the new facts into the `"facts"` array of `~/.claude/smart-spinner/facts.json` with the Edit tool instead — hooks will pick them up automatically.
-
-7. Finish with a one-line confirmation (their language): pool is at 100; `/smart-spinner:topic <new topic>` switches topics, `/smart-spinner:off` turns it off.
+   Rules: ≤ 64 chars per line (hard max 80), true and verifiable, surprising over textbook, standalone, no numbering/quotes/emoji/trailing punctuation, no near-duplicates. Verify the `ok` status, then still run `generate-rest`. If `add` also errors: as a last resort set the keys via the Edit tool in `~/.claude/settings.json` (`spinnerTipsOverride: {"tips": [banner + facts], "excludeDefault": true}`, `spinnerVerbs: {"mode": "replace", "verbs": [facts ≤ 60 chars]}`, preserving all other keys) and Write the pool to `~/.claude/smart-spinner/facts.json` (`{"topic", "language", "facts"}`).

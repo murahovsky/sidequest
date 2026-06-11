@@ -224,6 +224,17 @@ if (cmd === "add") {
   } catch {
     console.log(0);
   }
+} else if (cmd === "list") {
+  try {
+    for (const f of loadFacts()) console.log(f);
+  } catch {}
+} else if (cmd === "meta") {
+  try {
+    const doc = readJsonOr(FACTS_PATH, {});
+    console.log(`${doc.topic || ""}\t${doc.language || "en"}`);
+  } catch {
+    console.log("\ten");
+  }
 } else {
   try {
     if (cmd === "off") off();
