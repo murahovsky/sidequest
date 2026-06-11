@@ -20,8 +20,11 @@ sh "$DIR/run.sh" tick-start
 
 # Preferred-language signal for the first-run flow: the synthetic setup
 # prompt is English, so the model needs a real hint about the user.
-SYS_LANGS=$(defaults read -g AppleLanguages 2>/dev/null | tr -d ' "()' | tr ',' ' ')
-[ -z "$SYS_LANGS" ] && SYS_LANGS="${LC_ALL:-${LANG:-en}}"
+# `defaults read` output is a multi-line plist — flatten it to one line.
+SYS_LANGS=$(defaults read -g AppleLanguages 2>/dev/null | tr -d ' "()' | tr '\n,' '  ')
+SYS_LANGS=$(echo $SYS_LANGS)
+case "$SYS_LANGS" in ''|C|C.*|POSIX) SYS_LANGS="${LC_ALL:-${LANG:-en}}";; esac
+case "$SYS_LANGS" in ''|C|C.*|POSIX) SYS_LANGS="en";; esac
 
 if [ -f "$DATA_DIR/facts.json" ]; then
   COUNT="$(sh "$DIR/run.sh" count)"
