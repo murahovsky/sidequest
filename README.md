@@ -23,7 +23,7 @@ Or manually, inside Claude Code:
 /plugin install smart-spinner@smart-spinner
 ```
 
-Then start a new session. Claude will ask what topic fascinates you, generate a pool of ~150 facts about it in your language, and your spinner is never boring again.
+Then start a new session. Claude will explain the setup, ask what topic fascinates you (with an interactive picker), generate a pool of ~100 facts about it in your language, and your spinner is never boring again.
 
 ## Commands
 
@@ -36,7 +36,7 @@ Then start a new session. Claude will ask what topic fascinates you, generate a 
 ## How it works
 
 - Claude Code has documented settings for spinner customization: `spinnerVerbs` and `spinnerTipsOverride`. Both hot-reload — changes apply mid-session, no restart.
-- On setup, your own Claude generates ~150 one-line facts (≤ 80 chars) and saves them to `~/.claude/smart-spinner/facts.json`. This is the only step that costs tokens, and it runs in your normal session.
+- On setup, your own Claude generates ~100 one-line facts (≤ 80 chars) and saves them to `~/.claude/smart-spinner/facts.json`. This is the only step that costs tokens, and it runs in your normal session.
 - A tiny hook rotates a fresh shuffled batch of facts into `~/.claude/settings.json` on every session start and every message you send. The rotation script is ~100 lines of dependency-free Python (with a Node fallback), runs in milliseconds, and prints nothing.
 - Before its first write, the plugin backs up your settings to `~/.claude/smart-spinner/settings.backup.json`. `/smart-spinner:off` restores the spinner keys from that backup.
 
