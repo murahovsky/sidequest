@@ -18,6 +18,11 @@ mkdir -p "$DATA_DIR"
 printf '%s' "$ROOT" > "$DATA_DIR/plugin-root"
 sh "$DIR/run.sh" tick-start
 
+# Preferred-language signal for the first-run flow: the synthetic setup
+# prompt is English, so the model needs a real hint about the user.
+SYS_LANGS=$(defaults read -g AppleLanguages 2>/dev/null | tr -d ' "()' | tr ',' ' ')
+[ -z "$SYS_LANGS" ] && SYS_LANGS="${LC_ALL:-${LANG:-en}}"
+
 if [ -f "$DATA_DIR/facts.json" ]; then
   COUNT="$(sh "$DIR/run.sh" count)"
   sh "$DIR/run.sh" rotate
@@ -34,7 +39,9 @@ EOF
 fi
 
 cat <<EOF
-[smart-spinner] First-run setup: the Smart Spinner plugin is installed but has no facts pool yet. In your first reply this session — after fully addressing the user's actual request, if there is one (a bare "Set up Smart Spinner" message IS this setup request) — do the following, entirely in the language the user writes in. Execute immediately, no deliberation: the facts come from a script, not from you.
+[smart-spinner] First-run setup: the Smart Spinner plugin is installed but has no facts pool yet. In your first reply this session — after fully addressing the user's actual request, if there is one (a bare "Set up Smart Spinner" message IS this setup request) — do the following. Execute immediately, no deliberation: the facts come from a script, not from you.
+
+Language rule: the user's system languages, in order of preference, are: $SYS_LANGS. A bare "Set up Smart Spinner" message is synthetic — NOT a language signal. Default everything (intro, topic options, banner, facts <lang>) to the FIRST system language; the moment the user writes anything themselves in a different language (a typed "Other" topic counts), switch everything to that language instead.
 
 1. Introduce it in ONE or TWO short casual sentences — plain spoken style, no feature lists, no privacy talk, no headings. Model them on this (localize naturally): "While I work, that spinner line below will show fun little facts instead of 'Pondering…' — pick a topic you love and I'll set it up in about ten seconds."
 
