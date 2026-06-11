@@ -1,9 +1,12 @@
 #!/bin/sh
-# SessionStart hook. Three modes:
+# SessionStart hook. Modes:
 #   no facts.json      → emit first-run setup instructions (stdout = model context)
 #   pool empty (0)     → user declined earlier; stay silent
 #   pool 1..99         → rotate, then ask the model to kick off a silent top-up
 #   pool >= 100        → just rotate
+# Always: persist plugin root for command markdown, start the ticker (it idles
+# until facts exist, so it also covers the setup turn of argv-prompt sessions
+# where UserPromptSubmit never fires).
 DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 DATA_DIR="${SMART_SPINNER_HOME:-$HOME/.claude/smart-spinner}"
 ROOT="${CLAUDE_PLUGIN_ROOT:-$(dirname "$DIR")}"
@@ -11,10 +14,9 @@ ROOT="${CLAUDE_PLUGIN_ROOT:-$(dirname "$DIR")}"
 # Stay inert inside our own nested headless generation calls.
 [ -n "$SMART_SPINNER_NESTED" ] && exit 0
 
-# Persist the resolved plugin root so command markdown (where the
-# ${CLAUDE_PLUGIN_ROOT} placeholder may not expand) can find the scripts.
 mkdir -p "$DATA_DIR"
 printf '%s' "$ROOT" > "$DATA_DIR/plugin-root"
+sh "$DIR/run.sh" tick-start
 
 if [ -f "$DATA_DIR/facts.json" ]; then
   COUNT="$(sh "$DIR/run.sh" count)"
@@ -32,13 +34,23 @@ EOF
 fi
 
 cat <<EOF
-[smart-spinner] First-run setup: the Smart Spinner plugin is installed but has no facts pool yet. In your first reply this session — after fully addressing the user's actual request, if there is one (a bare "Set up Smart Spinner" message IS this setup request) — do the following, entirely in the language the user writes in. The whole flow is mechanical (a script generates the facts), so execute immediately, with no deliberation.
+[smart-spinner] First-run setup: the Smart Spinner plugin is installed but has no facts pool yet. In your first reply this session — after fully addressing the user's actual request, if there is one (a bare "Set up Smart Spinner" message IS this setup request) — do the following, entirely in the language the user writes in. Execute immediately, no deliberation: the facts come from a script, not from you.
 
-1. Introduce the product conversationally: exactly TWO short sentences, each on its own line, with a blank line between them — no long paragraphs, no lists, no headings. First sentence: while Claude works, the spinner will show fascinating one-line facts about a topic the user picks, in their language. Second sentence: everything is generated and stored locally by their own Claude — facts go live about ten seconds after picking a topic, and the pool quietly grows to ~100 on its own.
+1. Introduce it in ONE or TWO short casual sentences — plain spoken style, no feature lists, no privacy talk, no headings. Model them on this (localize naturally): "While I work, that spinner line below will show fun little facts instead of 'Pondering…' — pick a topic you love and I'll set it up in about ten seconds."
 
-2. Then immediately ask which topic fascinates them, using the AskUserQuestion tool: one question, 3-4 short topic options tailored to what you know about the user, localized, always including a "Surprise me" eclectic-mix option. The tool adds an "Other" choice automatically — mention they can type literally anything there. If AskUserQuestion is unavailable, ask in plain text.
+2. Right after, ask the topic with the AskUserQuestion tool: one question, 3-4 short options tailored to what you know about the user, localized, plus a "Surprise me" mix option; mention they can type literally anything via the built-in "Other".
 
-3. When they answer, follow $ROOT/commands/topic.md with their choice as the topic. Do not explain the commands now — the closing one-liner after setup covers that.
+3. When they answer, run EXACTLY this, substituting <topic> with their words, <lang> with their language code (e.g. ru, en), <banner> with a short fun launch line in their language (≤ 50 chars):
 
-4. If they decline or ignore the question, run: mkdir -p "$DATA_DIR" && printf '{"topic":null,"facts":[]}' > "$DATA_DIR/facts.json" — this permanently stops the first-run prompt (they can enable later with /smart-spinner:topic), then drop the subject and never raise it again.
+sh "$ROOT/scripts/run.sh" generate-first "<topic>" "<lang>" "<banner>"
+
+It takes ~10 s and prints "ok ..." — the first facts are then ALREADY live in the spinner. Immediately run:
+
+sh "$ROOT/scripts/run.sh" generate-rest
+
+(returns instantly; grows the pool to ~100 in the background). Then close with ONE casual sentence: facts are live and the pool keeps growing; /smart-spinner:topic <topic> switches, /smart-spinner:off turns it off.
+
+4. Only if generate-first printed "error": open $ROOT/commands/topic.md and follow its fallback section.
+
+5. If they decline or ignore the question, run: mkdir -p "$DATA_DIR" && printf '{"topic":null,"facts":[]}' > "$DATA_DIR/facts.json" — then drop the subject and never raise it again (they can enable later with /smart-spinner:topic).
 EOF
