@@ -61,9 +61,7 @@ Commands inside Claude Code:
 // Launch a session with that message baked in; Ctrl+C skips it.
 if (process.stdout.isTTY && process.stdin.isTTY) {
   console.log("Launching Claude Code to finish setup — pick your topic there. (Ctrl+C to skip)\n");
-  const locale = process.env.LC_ALL || process.env.LANG || "";
-  const hint = locale ? ` My system locale is ${locale} — talk to me in that language.` : "";
-  spawnSync("claude", [`Set up Smart Spinner.${hint}`], { stdio: "inherit" });
+  spawnSync("claude", ["Set up Smart Spinner"], { stdio: "inherit" });
 } else {
   console.log('Now start a session with: claude "Set up Smart Spinner" — and pick your topic.');
 }

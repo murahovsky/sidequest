@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 // Smart Spinner engine — Node mirror of smart_spinner.py, used when python3
-// is unavailable. Commands: rotate | add <topic> <lang> [banner] | count | off.
-// rotate/off stay silent (hook stdout is injected into model context);
-// add/count print so the model can verify success when run via the Bash tool.
+// is unavailable. Commands: rotate | tick | add <topic> <lang> [banner] |
+// count | off. rotate/tick/off stay silent (hook stdout is injected into
+// model context); add/count print so the model can verify success.
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -15,9 +15,11 @@ const STATE_PATH = path.join(DATA_DIR, "state.json");
 const BACKUP_PATH = path.join(DATA_DIR, "settings.backup.json");
 
 const TIPS_PER_BATCH = 30;
+const TICK_TIPS = 3;
 const MAX_TIP_LEN = 80;
 const MAX_VERB_LEN = 60;
 const MAX_POOL = 300;
+const SPARKLE_TICKS = 24;
 const MANAGED_KEYS = ["spinnerTipsOverride", "spinnerVerbs"];
 const SPARK = "✨";
 
@@ -49,6 +51,12 @@ function loadSettings() {
   return { settings, existed: true };
 }
 
+function ensureBackup(existed) {
+  if (!existed || fs.existsSync(BACKUP_PATH)) return;
+  fs.mkdirSync(DATA_DIR, { recursive: true });
+  fs.copyFileSync(SETTINGS_PATH, BACKUP_PATH);
+}
+
 function cleanLines(lines) {
   const out = [];
   for (const item of lines) {
@@ -73,7 +81,7 @@ function shuffle(arr) {
   return arr;
 }
 
-function takeBatch(facts, state) {
+function takeBatch(facts, state, n) {
   let order = Array.isArray(state.order) ? state.order : null;
   let pos = Number.isInteger(state.pos) && state.pos >= 0 ? state.pos : 0;
   const expected = Array.from({ length: facts.length }, (_, i) => i);
@@ -83,7 +91,7 @@ function takeBatch(facts, state) {
   }
   if (pos > order.length) pos = 0;
   const batch = [];
-  for (let k = 0; k < Math.min(TIPS_PER_BATCH, facts.length); k++) {
+  for (let k = 0; k < Math.min(n, facts.length); k++) {
     if (pos >= order.length) {
       shuffle(order);
       pos = 0;
@@ -96,31 +104,55 @@ function takeBatch(facts, state) {
   return batch;
 }
 
-function decorate(batch, banner) {
-  const lines = [`${SPARK} ${banner.slice(0, 72)} ${SPARK}`];
-  for (const f of batch) lines.push(f.length <= MAX_TIP_LEN - 2 ? `${SPARK} ${f}` : f);
-  return lines;
+const sparkleLine = (f) => (f.length <= MAX_TIP_LEN - 2 ? `${SPARK} ${f}` : f);
+
+function writeDisplay(settings, state, tips, verbs) {
+  settings.spinnerTipsOverride = { tips, excludeDefault: true };
+  if (verbs) settings.spinnerVerbs = { mode: "replace", verbs };
+  atomicWrite(SETTINGS_PATH, settings);
+  atomicWrite(STATE_PATH, state);
 }
 
 function rotate() {
   const facts = loadFacts();
   if (!facts.length) return 0;
   const { settings, existed } = loadSettings();
-  if (existed && !fs.existsSync(BACKUP_PATH)) {
-    fs.mkdirSync(DATA_DIR, { recursive: true });
-    fs.copyFileSync(SETTINGS_PATH, BACKUP_PATH);
-  }
+  ensureBackup(existed);
   const state = readJsonOr(STATE_PATH, {});
-  const batch = takeBatch(facts, state);
+  const batch = takeBatch(facts, state, TIPS_PER_BATCH);
   const banner = typeof state.banner === "string" && state.banner.trim() ? state.banner.trim() : null;
   delete state.banner;
-  const display = banner ? decorate(batch, banner) : batch;
-  settings.spinnerTipsOverride = { tips: display, excludeDefault: true };
+  let display;
+  if (banner) {
+    display = [`${SPARK} ${banner.slice(0, 72)} ${SPARK}`, ...batch.map(sparkleLine)];
+  } else if (Number.isInteger(state.sparkle_left) && state.sparkle_left > 0) {
+    display = batch.map(sparkleLine);
+    state.sparkle_left -= 1;
+  } else {
+    display = batch;
+  }
   const verbs = display.filter((f) => f.length <= MAX_VERB_LEN);
-  if (verbs.length >= 5) settings.spinnerVerbs = { mode: "replace", verbs };
-  atomicWrite(SETTINGS_PATH, settings);
-  atomicWrite(STATE_PATH, state);
+  writeDisplay(settings, state, display, verbs.length >= 5 ? verbs : null);
   return display.length;
+}
+
+function tick() {
+  const facts = loadFacts();
+  if (!facts.length) return;
+  const state = readJsonOr(STATE_PATH, {});
+  if (state.banner) {
+    rotate(); // launch moment pending — show the full banner batch first
+    return;
+  }
+  const { settings, existed } = loadSettings();
+  ensureBackup(existed);
+  let batch = takeBatch(facts, state, TICK_TIPS);
+  if (Number.isInteger(state.sparkle_left) && state.sparkle_left > 0) {
+    batch = batch.map(sparkleLine);
+    state.sparkle_left -= 1;
+  }
+  const verb = batch.find((f) => f.length <= MAX_VERB_LEN);
+  writeDisplay(settings, state, batch, verb ? [verb] : null);
 }
 
 function add(topic, lang, banner) {
@@ -142,8 +174,11 @@ function add(topic, lang, banner) {
   doc.topic = topic;
   doc.language = lang;
   atomicWrite(FACTS_PATH, doc);
-  let state = fresh ? {} : readJsonOr(STATE_PATH, {});
-  if (typeof banner === "string" && banner.trim()) state.banner = banner.trim();
+  const state = fresh ? {} : readJsonOr(STATE_PATH, {});
+  if (typeof banner === "string" && banner.trim()) {
+    state.banner = banner.trim();
+    state.sparkle_left = SPARKLE_TICKS;
+  }
   atomicWrite(STATE_PATH, state);
   const shown = rotate();
   console.log(`ok pool=${doc.facts.length} added=${added.length} live_in_spinner=${shown} settings=${SETTINGS_PATH}`);
@@ -191,6 +226,7 @@ if (cmd === "add") {
 } else {
   try {
     if (cmd === "off") off();
+    else if (cmd === "tick") tick();
     else rotate();
   } catch {
     // A broken spinner toy must never break the user's session.

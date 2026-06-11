@@ -25,7 +25,7 @@ The goal: facts appear in the user's spinner within seconds, then the pool quiet
    FACTS
    ```
 
-   If `${CLAUDE_PLUGIN_ROOT}` was not expanded to a real path, locate the script with `ls -d ~/.claude/plugins/cache/*/smart-spinner/*/scripts/run.sh 2>/dev/null | head -1`.
+   If `${CLAUDE_PLUGIN_ROOT}` was not expanded to a real path, the plugin root is stored in `~/.claude/smart-spinner/plugin-root` — use `sh "$(cat ~/.claude/smart-spinner/plugin-root)/scripts/run.sh"`. Last resort: `find ~/.claude/plugins -name run.sh -path '*smart-spinner*' 2>/dev/null | head -1` (never use a bare glob — zsh aborts on no match).
 
    The script prints a status line. **Verify it**: it must start with `ok` and show `live_in_spinner` > 0.
 

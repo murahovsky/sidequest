@@ -2,9 +2,13 @@
 """Smart Spinner engine.
 
 Commands:
-  rotate              Write the next batch of facts into Claude Code settings
+  rotate              Write the next 30-fact batch into Claude Code settings
                       (spinnerTipsOverride + spinnerVerbs). Silent: meant for
                       hooks, whose stdout is injected into model context.
+  tick                One micro-rotation: the next single fact into the verb
+                      slot (plus 3 tips). Driven every few seconds by run.sh's
+                      tick-loop while Claude works, so the visible fact keeps
+                      changing via settings hot-reload. Silent.
   add <topic> <lang> [banner]
                       Read facts from stdin (one per line) and append them to
                       the pool — or start a fresh pool if the topic changed.
@@ -14,7 +18,9 @@ Commands:
   off                 Remove the managed keys, restoring pre-install values
                       from the first-write backup when available.
 
-Settings are never written if the existing file fails to parse.
+Settings are never written if the existing file fails to parse. Writes are
+atomic; a rare lost-update race with Claude Code's own settings writes is
+accepted (next tick repairs it).
 """
 import json
 import os
@@ -32,11 +38,13 @@ STATE_PATH = os.path.join(DATA_DIR, "state.json")
 BACKUP_PATH = os.path.join(DATA_DIR, "settings.backup.json")
 
 TIPS_PER_BATCH = 30
-MAX_TIP_LEN = 80   # facts longer than this are dropped entirely
-MAX_VERB_LEN = 60  # only facts this short go into the verb slot
+TICK_TIPS = 3
+MAX_TIP_LEN = 80    # facts longer than this are dropped entirely
+MAX_VERB_LEN = 60   # only facts this short go into the verb slot
 MAX_POOL = 300
+SPARKLE_TICKS = 24  # ~2 minutes of launch sparkles at one tick per 5s
 MANAGED_KEYS = ("spinnerTipsOverride", "spinnerVerbs")
-SPARK = "✨"   # ✨ — launch-effect decoration
+SPARK = "✨"
 
 
 def read_json(path):
@@ -79,6 +87,18 @@ def load_settings():
     return settings, True
 
 
+def ensure_backup(settings_existed):
+    if not settings_existed or os.path.exists(BACKUP_PATH):
+        return
+    with open(SETTINGS_PATH, "rb") as src:
+        raw = src.read()
+    os.makedirs(DATA_DIR, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=DATA_DIR, prefix=".smart-spinner-")
+    with os.fdopen(fd, "wb") as f:
+        f.write(raw)
+    os.replace(tmp, BACKUP_PATH)
+
+
 def clean_lines(lines):
     out = []
     for item in lines:
@@ -98,7 +118,7 @@ def load_facts():
     return clean_lines(raw) if isinstance(raw, list) else []
 
 
-def take_batch(facts, state):
+def take_batch(facts, state, n):
     """Advance a persisted shuffle so facts repeat as rarely as possible."""
     order = state.get("order")
     pos = state.get("pos", 0)
@@ -109,7 +129,7 @@ def take_batch(facts, state):
     if not isinstance(pos, int) or pos < 0 or pos > len(order):
         pos = 0
     batch = []
-    for _ in range(min(TIPS_PER_BATCH, len(facts))):
+    for _ in range(min(n, len(facts))):
         if pos >= len(order):
             random.shuffle(order)
             pos = 0
@@ -120,39 +140,59 @@ def take_batch(facts, state):
     return batch
 
 
-def decorate(batch, banner):
-    """Launch effect: a banner line plus sparkles, shown for one rotation only."""
-    lines = [f"{SPARK} {banner[:72]} {SPARK}"]
-    for f in batch:
-        lines.append(f"{SPARK} {f}" if len(f) <= MAX_TIP_LEN - 2 else f)
-    return lines
+def sparkle(line):
+    return f"{SPARK} {line}" if len(line) <= MAX_TIP_LEN - 2 else line
+
+
+def write_display(settings, state, tips, verbs):
+    settings["spinnerTipsOverride"] = {"tips": tips, "excludeDefault": True}
+    if verbs:
+        settings["spinnerVerbs"] = {"mode": "replace", "verbs": verbs}
+    atomic_write(SETTINGS_PATH, settings)
+    atomic_write(STATE_PATH, state)
 
 
 def rotate():
-    """Returns the number of lines now live in the spinner."""
+    """Full batch refresh. Returns the number of lines now live."""
     facts = load_facts()
     if not facts:
         return 0
     settings, existed = load_settings()
-    if existed and not os.path.exists(BACKUP_PATH):
-        with open(SETTINGS_PATH, "rb") as src:
-            raw = src.read()
-        os.makedirs(DATA_DIR, exist_ok=True)
-        fd, tmp = tempfile.mkstemp(dir=DATA_DIR, prefix=".smart-spinner-")
-        with os.fdopen(fd, "wb") as f:
-            f.write(raw)
-        os.replace(tmp, BACKUP_PATH)
+    ensure_backup(existed)
     state = read_json_or(STATE_PATH, {})
-    batch = take_batch(facts, state)
+    batch = take_batch(facts, state, TIPS_PER_BATCH)
     banner = state.pop("banner", None)
-    display = decorate(batch, banner) if isinstance(banner, str) and banner.strip() else batch
-    settings["spinnerTipsOverride"] = {"tips": display, "excludeDefault": True}
+    sparkles = state.get("sparkle_left", 0)
+    if isinstance(banner, str) and banner.strip():
+        display = [f"{SPARK} {banner.strip()[:72]} {SPARK}"] + [sparkle(f) for f in batch]
+    elif isinstance(sparkles, int) and sparkles > 0:
+        display = [sparkle(f) for f in batch]
+        state["sparkle_left"] = sparkles - 1
+    else:
+        display = batch
     verbs = [f for f in display if len(f) <= MAX_VERB_LEN]
-    if len(verbs) >= 5:
-        settings["spinnerVerbs"] = {"mode": "replace", "verbs": verbs}
-    atomic_write(SETTINGS_PATH, settings)
-    atomic_write(STATE_PATH, state)
+    write_display(settings, state, display, verbs if len(verbs) >= 5 else None)
     return len(display)
+
+
+def tick():
+    """Micro-rotation: force the next fact into the verb slot."""
+    facts = load_facts()
+    if not facts:
+        return
+    state = read_json_or(STATE_PATH, {})
+    if state.get("banner"):
+        rotate()  # launch moment pending — show the full banner batch first
+        return
+    settings, existed = load_settings()
+    ensure_backup(existed)
+    batch = take_batch(facts, state, TICK_TIPS)
+    sparkles = state.get("sparkle_left", 0)
+    if isinstance(sparkles, int) and sparkles > 0:
+        batch = [sparkle(f) for f in batch]
+        state["sparkle_left"] = sparkles - 1
+    verb = next((f for f in batch if len(f) <= MAX_VERB_LEN), None)
+    write_display(settings, state, batch, [verb] if verb else None)
 
 
 def add(topic, lang, banner=None):
@@ -179,6 +219,7 @@ def add(topic, lang, banner=None):
         state.pop("pos", None)
     if isinstance(banner, str) and banner.strip():
         state["banner"] = banner.strip()
+        state["sparkle_left"] = SPARKLE_TICKS
     atomic_write(STATE_PATH, state)
     shown = rotate()
     print(f"ok pool={len(doc['facts'])} added={len(added)} live_in_spinner={shown} settings={SETTINGS_PATH}")
@@ -221,10 +262,12 @@ def main():
         except Exception:  # noqa: BLE001
             print(0)
     else:
-        # Hook paths (rotate/off) must stay silent and never break a session.
+        # Hook/daemon paths (rotate/tick/off) stay silent, never break a session.
         try:
             if cmd == "off":
                 off()
+            elif cmd == "tick":
+                tick()
             else:
                 rotate()
         except Exception:  # noqa: BLE001

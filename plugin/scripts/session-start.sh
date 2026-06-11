@@ -8,6 +8,11 @@ DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 DATA_DIR="${SMART_SPINNER_HOME:-$HOME/.claude/smart-spinner}"
 ROOT="${CLAUDE_PLUGIN_ROOT:-$(dirname "$DIR")}"
 
+# Persist the resolved plugin root so command markdown (where the
+# ${CLAUDE_PLUGIN_ROOT} placeholder may not expand) can find the scripts.
+mkdir -p "$DATA_DIR"
+printf '%s' "$ROOT" > "$DATA_DIR/plugin-root"
+
 if [ -f "$DATA_DIR/facts.json" ]; then
   COUNT="$(sh "$DIR/run.sh" count)"
   sh "$DIR/run.sh" rotate
