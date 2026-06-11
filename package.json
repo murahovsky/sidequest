@@ -1,0 +1,19 @@
+{
+  "name": "smart-spinner",
+  "version": "0.1.0",
+  "description": "Fascinating facts in your Claude Code spinner — about topics you love, in your language, generated locally by your own Claude.",
+  "type": "module",
+  "bin": {
+    "smart-spinner": "bin/install.mjs"
+  },
+  "repository": "github:murahovsky/smart-spinner",
+  "license": "MIT",
+  "keywords": [
+    "claude-code",
+    "claude",
+    "spinner",
+    "facts",
+    "trivia",
+    "plugin"
+  ]
+}
