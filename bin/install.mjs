@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // One-command installer: npx github:murahovsky/smart-spinner
-// Registers the marketplace and installs the plugin via the claude CLI.
-import { execFileSync } from "node:child_process";
+// Registers the marketplace, installs the plugin via the claude CLI, then
+// drops the user straight into a Claude session that finishes setup.
+import { execFileSync, spawnSync } from "node:child_process";
 
 const REPO = "murahovsky/smart-spinner";
 const MARKETPLACE = "smart-spinner";
@@ -49,10 +50,20 @@ try {
 }
 
 console.log(`
-Done! Start a new "claude" session — it will ask what topic fascinates you,
-then fill your spinner with facts about it, in your language.
+✓ Installed.
 
 Commands inside Claude Code:
   /smart-spinner:topic <topic>   pick or change the topic
   /smart-spinner:off             turn facts off
 `);
+
+// Claude can't speak first in a session, so setup needs one user message.
+// Launch a session with that message baked in; Ctrl+C skips it.
+if (process.stdout.isTTY && process.stdin.isTTY) {
+  console.log("Launching Claude Code to finish setup — pick your topic there. (Ctrl+C to skip)\n");
+  const locale = process.env.LC_ALL || process.env.LANG || "";
+  const hint = locale ? ` My system locale is ${locale} — talk to me in that language.` : "";
+  spawnSync("claude", [`Set up Smart Spinner.${hint}`], { stdio: "inherit" });
+} else {
+  console.log('Now start a session with: claude "Set up Smart Spinner" — and pick your topic.');
+}

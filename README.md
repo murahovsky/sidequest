@@ -16,6 +16,8 @@ One command (requires Node.js):
 npx github:murahovsky/smart-spinner
 ```
 
+The installer drops you straight into a Claude session that explains the setup and asks what topic fascinates you (with an interactive picker). Pick one — Claude generates a pool of ~100 facts about it in your language, and your spinner is never boring again.
+
 Or manually, inside Claude Code:
 
 ```
@@ -23,7 +25,7 @@ Or manually, inside Claude Code:
 /plugin install smart-spinner@smart-spinner
 ```
 
-Then start a new session. Claude will explain the setup, ask what topic fascinates you (with an interactive picker), generate a pool of ~100 facts about it in your language, and your spinner is never boring again.
+Then start a new session and say anything (Claude can't speak first) — or start it as `claude "Set up Smart Spinner"`.
 
 ## Commands
 
