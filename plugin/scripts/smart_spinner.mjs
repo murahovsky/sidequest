@@ -22,6 +22,7 @@ const MAX_POOL = 300;
 const SPARKLE_TICKS = 24;
 const MANAGED_KEYS = ["spinnerTipsOverride", "spinnerVerbs"];
 const SPARK = "✨";
+const VERB_MARK = "│"; // end-of-fact separator: Claude Code appends its own "…" to verbs
 
 const readJson = (p) => JSON.parse(fs.readFileSync(p, "utf8"));
 
@@ -131,7 +132,7 @@ function rotate() {
   } else {
     display = batch;
   }
-  const verbs = display.filter((f) => f.length <= MAX_VERB_LEN);
+  const verbs = display.filter((f) => f.length <= MAX_VERB_LEN).map((f) => `${f} ${VERB_MARK}`);
   writeDisplay(settings, state, display, verbs.length >= 5 ? verbs : null);
   return display.length;
 }
@@ -152,7 +153,7 @@ function tick() {
     state.sparkle_left -= 1;
   }
   const verb = batch.find((f) => f.length <= MAX_VERB_LEN);
-  writeDisplay(settings, state, batch, verb ? [verb] : null);
+  writeDisplay(settings, state, batch, verb ? [`${verb} ${VERB_MARK}`] : null);
 }
 
 function add(topic, lang, banner) {

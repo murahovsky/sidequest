@@ -45,6 +45,7 @@ MAX_POOL = 300
 SPARKLE_TICKS = 24  # ~2 minutes of launch sparkles at one tick per 5s
 MANAGED_KEYS = ("spinnerTipsOverride", "spinnerVerbs")
 SPARK = "✨"
+VERB_MARK = "│"  # end-of-fact separator: Claude Code appends its own "…" to verbs
 
 
 def read_json(path):
@@ -170,7 +171,7 @@ def rotate():
         state["sparkle_left"] = sparkles - 1
     else:
         display = batch
-    verbs = [f for f in display if len(f) <= MAX_VERB_LEN]
+    verbs = [f"{f} {VERB_MARK}" for f in display if len(f) <= MAX_VERB_LEN]
     write_display(settings, state, display, verbs if len(verbs) >= 5 else None)
     return len(display)
 
@@ -192,7 +193,7 @@ def tick():
         batch = [sparkle(f) for f in batch]
         state["sparkle_left"] = sparkles - 1
     verb = next((f for f in batch if len(f) <= MAX_VERB_LEN), None)
-    write_display(settings, state, batch, [verb] if verb else None)
+    write_display(settings, state, batch, [f"{verb} {VERB_MARK}"] if verb else None)
 
 
 def add(topic, lang, banner=None):
