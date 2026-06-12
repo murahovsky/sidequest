@@ -14,10 +14,12 @@ the wrapper substitutes that token in the output stream with the current
 fact.
 
 Ink (Claude Code's renderer) repaints the verb both as whole lines and as
-positioned partial slices (ESC[nG + a few chars), so a literal replace is not
-enough: the filter tracks the cursor column and substitutes any slice of the
-sentinel positionally. The fact only advances when a full repaint passes by,
-keeping the on-screen line consistent.
+positioned partial slices (ESC[nG + a few chars), so a literal replace is
+not enough. The filter tracks the cursor column, learns the sentinel's
+screen position from a full paint (the anchor), and substitutes only runs
+that match the sentinel at that exact alignment — long enough that ordinary
+text which happens to coincide with a sentinel character (the F of "Fable")
+is never touched.
 
 Usage: sidequest [any claude args...]
 Env:   SIDEQUEST_INTERVAL  seconds between facts (default 3)
@@ -37,11 +39,17 @@ import tempfile
 import termios
 import time
 import tty
+import unicodedata
 
 SENTINEL = ("SIDEQUESTFACT" * 5)[:64]  # 64 ascii columns, printed by Claude Code itself
 SENT_B = SENTINEL.encode()
 WIDTH = 64
-COL0 = 3  # Ink draws the verb starting at terminal column 3 (after "✳ ")
+# A run must match the sentinel from index 0 for at least ANCHOR_RUN chars to
+# (re)teach us where the sentinel sits on screen; an anchored partial repaint
+# must match for at least MIN_RUN chars to be substituted. Shorter coincidences
+# in ordinary text (even an aligned uppercase "FACT") pass through untouched.
+ANCHOR_RUN = 16
+MIN_RUN = 6
 HOME = os.path.expanduser("~")
 # Follow the instance: with CLAUDE_CONFIG_DIR set, settings/plugins/data all
 # live there — writing to ~/.claude would feed a different Claude.
@@ -191,55 +199,83 @@ class Facts:
         return self.queue.pop()
 
 
-def pad(text):
-    t = text[:WIDTH]
-    return t + " " * (WIDTH - len(t))
+def char_width(ch):
+    """Terminal columns one character occupies (CJK and fullwidth take two)."""
+    if isinstance(ch, (bytes, bytearray)):
+        try:
+            ch = ch.decode("utf-8")
+        except UnicodeDecodeError:
+            return 1
+    return 2 if unicodedata.east_asian_width(ch) in ("F", "W") else 1
+
+
+def pad_cells(text):
+    """Render a fact into exactly WIDTH terminal cells. A wide char occupies
+    two cells (the second one empty), so substituting cell-for-column never
+    changes the width of the line on screen."""
+    cells = []
+    for ch in " ".join(text.split()):
+        w = char_width(ch)
+        if len(cells) + w > WIDTH:
+            break
+        cells.append(ch)
+        if w == 2:
+            cells.append("")
+    while len(cells) < WIDTH:
+        cells.append(" ")
+    return cells
 
 
 class SpinnerFilter:
-    """Column-tracking stream filter substituting sentinel slices with facts."""
+    """Column-tracking stream filter substituting sentinel paints with facts.
+
+    Substitution requires evidence, not a lone matching character:
+      - an anchor paint — a run matching the sentinel from its start for at
+        least ANCHOR_RUN chars — is substituted and teaches us the column
+        where the sentinel lives (a full 64-char paint also advances the fact);
+      - once anchored, partial repaints matching at that exact alignment for
+        at least MIN_RUN chars are substituted too.
+    Everything else, including ordinary text that collides with a sentinel
+    character at the right column, passes through byte-for-byte.
+    """
 
     def __init__(self, facts):
         self.facts = facts
-        self.fact = pad(facts.next_line())
+        self.cells = pad_cells(facts.next_line())
         self.last_swap = time.monotonic()
-        self.col = None  # unknown until a CR / column-addressing sequence
-        self.carry = b""
+        self.col = None      # 1-based cursor column; None until CR/escape tells us
+        self.anchor = None   # screen column of sentinel index 0, once seen
+        self.hold = b""      # incomplete trailing escape / utf-8 char, kept for the next chunk
+        self.pend = bytearray()  # candidate sentinel run, original bytes
+        # Sentinel start-indexes still consistent with the run. Two can be alive
+        # at once (the sentinel is periodic), so both alignments are tracked and
+        # the choice is made at flush time.
+        self.cands = []
+        self.anch_c = None       # the candidate that matches the learned anchor
 
     def maybe_swap(self):
         if time.monotonic() - self.last_swap >= INTERVAL:
-            self.fact = pad(self.facts.next_line())
+            self.cells = pad_cells(self.facts.next_line())
             self.last_swap = time.monotonic()
 
     def feed(self, data):
-        d = self.carry + data
-        self.carry = b""
-        # withhold an incomplete trailing escape sequence
-        esc = d.rfind(b"\x1b", max(0, len(d) - 24))
-        if esc != -1:
-            tail = d[esc:]
-            if not self._esc_complete(tail):
-                self.carry, d = tail, d[:esc]
-        # withhold an incomplete trailing utf-8 character
+        d = self.hold + data
+        self.hold = b""
         cut = self._utf8_tail(d)
+        tail = b""
         if cut:
-            self.carry = d[-cut:] + self.carry
-            d = d[:-cut]
-        return self._walk(d)
+            tail, d = d[-cut:], d[:-cut]
+        out = self._walk(d)  # may set self.hold to an incomplete escape tail
+        self.hold += tail
+        return out
 
-    @staticmethod
-    def _esc_complete(seq):
-        if len(seq) < 2:
-            return False
-        kind = seq[1:2]
-        if kind == b"[":
-            for b in seq[2:]:
-                if 0x40 <= b <= 0x7E:
-                    return True
-            return False
-        if kind == b"]":
-            return b"\x07" in seq or b"\x1b\\" in seq
-        return True  # two-byte escape
+    def finish(self):
+        """Flush whatever is still buffered (child exited mid-paint)."""
+        out = bytearray()
+        self._flush(out)
+        out += self.hold
+        self.hold = b""
+        return bytes(out)
 
     @staticmethod
     def _utf8_tail(d):
@@ -252,70 +288,137 @@ class SpinnerFilter:
                 return back if need > back else 0
         return 0
 
+    def _qualifies(self):
+        L = len(self.pend)
+        if self.anch_c is not None and self.anch_c in self.cands and L >= MIN_RUN:
+            return self.anch_c
+        if 0 in self.cands and L >= ANCHOR_RUN:
+            return 0
+        return None
+
+    def _flush(self, out):
+        if not self.pend:
+            return
+        L = len(self.pend)
+        chosen = self._qualifies()
+        if chosen == 0 and L >= ANCHOR_RUN:
+            if self.col is not None:
+                self.anchor = self.col - L  # (re)learn where the sentinel lives
+            if L == WIDTH:
+                self.maybe_swap()  # full repaint: the consistent moment to advance
+        if chosen is not None:
+            out += "".join(self.cells[chosen : chosen + L]).encode("utf-8")
+        else:
+            out += bytes(self.pend)
+        self.pend = bytearray()
+        self.cands = []
+        self.anch_c = None
+
+    def _start_run(self, b):
+        cands = []
+        anch_c = None
+        if (
+            self.anchor is not None
+            and self.col is not None
+            and self.anchor <= self.col < self.anchor + WIDTH
+            and b == SENT_B[self.col - self.anchor]
+        ):
+            anch_c = self.col - self.anchor
+            cands.append(anch_c)
+        if b == SENT_B[0] and 0 not in cands:
+            cands.append(0)
+        if not cands:
+            return False
+        self.pend.append(b)
+        self.cands = cands
+        self.anch_c = anch_c
+        if self.col is not None:
+            self.col += 1
+        return True
+
     def _walk(self, d):
         out = bytearray()
         i, n = 0, len(d)
-        # a full repaint in this chunk is the safe moment to advance the fact
-        if SENT_B in d:
-            self.maybe_swap()
         while i < n:
             b = d[i]
             if b == 0x1B:
-                j = self._esc_end(d, i)
-                self._apply_esc(d[i:j])
+                j, complete = self._esc_end(d, i)
+                self._flush(out)
+                if not complete and n - i <= 8192:
+                    self.hold = bytes(d[i:])  # escape split across chunks
+                    return bytes(out)
+                if complete:
+                    self._apply_esc(d[i:j])
                 out += d[i:j]
                 i = j
+            elif 0x20 <= b < 0x7F:
+                if self.pend:
+                    L = len(self.pend)
+                    alive = [c for c in self.cands if c + L < WIDTH and b == SENT_B[c + L]]
+                    if alive:
+                        self.cands = alive
+                        self.pend.append(b)
+                        if self.col is not None:
+                            self.col += 1
+                        i += 1
+                        continue
+                    self._flush(out)
+                if not self._start_run(b):
+                    out.append(b)
+                    if self.col is not None:
+                        self.col += 1
+                i += 1
             elif b == 0x0D:  # CR
+                self._flush(out)
                 self.col = 1
                 out.append(b)
                 i += 1
-            elif b in (0x0A, 0x07):  # LF keeps column; BEL no-op
-                out.append(b)
-                i += 1
             elif b == 0x08:  # BS
+                self._flush(out)
                 if self.col is not None and self.col > 1:
                     self.col -= 1
                 out.append(b)
                 i += 1
-            elif 0x20 <= b < 0x7F:
-                if (
-                    self.col is not None
-                    and COL0 <= self.col < COL0 + WIDTH
-                    and chr(b) == SENTINEL[self.col - COL0]
-                ):
-                    out += self.fact[self.col - COL0].encode("utf-8")
-                else:
-                    out.append(b)
-                if self.col is not None:
-                    self.col += 1
-                i += 1
             elif b >= 0xC0:  # utf-8 lead byte: copy the whole character
+                self._flush(out)
                 ln = 2 if b < 0xE0 else 3 if b < 0xF0 else 4
-                out += d[i : i + ln]
+                ch = d[i : i + ln]
+                out += ch
                 if self.col is not None:
-                    self.col += 1
+                    self.col += char_width(ch)
                 i += ln
-            else:  # stray continuation/control byte
+            else:  # LF, BEL, other controls, stray continuation bytes
+                self._flush(out)
                 out.append(b)
                 i += 1
+        # A run that already qualifies for substitution can be painted now;
+        # an ambiguous short fragment stays buffered for the next chunk.
+        if self.pend and self._qualifies() is not None:
+            self._flush(out)
         return bytes(out)
 
     @staticmethod
     def _esc_end(d, i):
-        if i + 1 >= len(d):
-            return len(d)
-        kind = d[i + 1 : i + 2]
-        if kind == b"[":
+        """Returns (end_index, complete) for the escape sequence at d[i:]."""
+        n = len(d)
+        if i + 1 >= n:
+            return n, False
+        kind = d[i + 1]
+        if kind == 0x5B:  # CSI: parameters until a final byte 0x40-0x7E
             j = i + 2
-            while j < len(d) and not (0x40 <= d[j] <= 0x7E):
+            while j < n:
+                if 0x40 <= d[j] <= 0x7E:
+                    return j + 1, True
                 j += 1
-            return min(j + 1, len(d))
-        if kind == b"]":
-            bel = d.find(b"\x07", i)
+            return n, False
+        if kind in b"]PX^_":  # OSC/DCS/SOS/PM/APC: string until BEL or ST
+            bel = d.find(b"\x07", i + 2)
             st = d.find(b"\x1b\\", i + 2)
-            ends = [e for e in (bel + 1 if bel != -1 else -1, st + 2 if st != -1 else -1) if e > 0]
-            return min(ends) if ends else len(d)
-        return min(i + 2, len(d))
+            ends = [e for e in (bel + 1 if bel != -1 else 0, st + 2 if st != -1 else 0) if e]
+            if ends:
+                return min(ends), True
+            return n, False
+        return i + 2, True  # two-byte escape
 
     def _apply_esc(self, seq):
         if len(seq) < 3 or seq[1:2] != b"[":
@@ -401,8 +504,7 @@ def main():
                         df.write(b"\n<<CHUNK %d>>" % int(time.monotonic() * 1000))
                         df.write(data)
                 os.write(1, filt.feed(data))
-        if filt.carry:
-            os.write(1, filt.carry)
+        os.write(1, filt.finish())
     finally:
         if old_attrs is not None:
             termios.tcsetattr(0, termios.TCSADRAIN, old_attrs)
