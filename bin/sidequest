@@ -45,11 +45,14 @@ SENTINEL = ("SIDEQUESTFACT" * 5)[:64]  # 64 ascii columns, printed by Claude Cod
 SENT_B = SENTINEL.encode()
 WIDTH = 64
 # A run must match the sentinel from index 0 for at least ANCHOR_RUN chars to
-# (re)teach us where the sentinel sits on screen; an anchored partial repaint
-# must match for at least MIN_RUN chars to be substituted. Shorter coincidences
-# in ordinary text (even an aligned uppercase "FACT") pass through untouched.
+# (re)teach us where the sentinel sits on screen (column, row and visible
+# span). On that exact row, at that alignment, single-character repaints are
+# trusted too — Claude Code's shimmer repaints the verb in 1-3 char slices.
+# A run may flush mid-chunk once it reaches SURE_RUN; shorter anchored
+# fragments wait to see what breaks them: broken by ordinary text painted
+# into the zone, the anchor is considered overwritten and dropped.
 ANCHOR_RUN = 16
-MIN_RUN = 6
+SURE_RUN = 6
 HOME = os.path.expanduser("~")
 # Follow the instance: with CLAUDE_CONFIG_DIR set, settings/plugins/data all
 # live there — writing to ~/.claude would feed a different Claude.
@@ -63,7 +66,6 @@ MARKETPLACE = "sidequest"
 PLUGIN = "sidequest"
 MARKER_PATH = os.path.join(DATA_DIR, "installed")
 IDLE_LINE = "Sidequest: facts will appear here once you pick a topic"
-
 
 def load_json(path, default):
     try:
@@ -227,16 +229,19 @@ def pad_cells(text):
 
 
 class SpinnerFilter:
-    """Column-tracking stream filter substituting sentinel paints with facts.
+    """Column- and row-tracking stream filter substituting sentinel paints.
 
-    Substitution requires evidence, not a lone matching character:
-      - an anchor paint — a run matching the sentinel from its start for at
-        least ANCHOR_RUN chars — is substituted and teaches us the column
-        where the sentinel lives (a full 64-char paint also advances the fact);
-      - once anchored, partial repaints matching at that exact alignment for
-        at least MIN_RUN chars are substituted too.
-    Everything else, including ordinary text that collides with a sentinel
-    character at the right column, passes through byte-for-byte.
+    A run matching the sentinel from its start for ANCHOR_RUN+ chars is an
+    anchor paint: it is substituted and records where the sentinel lives
+    (column, row, visible span — narrow terminals truncate the verb). On the
+    anchor row, runs matching at that alignment substitute at any length,
+    which is what Claude Code's shimmer needs (it repaints 1-3 char slices).
+    SGRs inside a run are buffered and replayed over the fact text.
+
+    Ordinary text is protected twice over: off the anchor row nothing shorter
+    than ANCHOR_RUN is ever touched, and on the anchor row the first ordinary
+    character painted into the zone (a run broken by a non-matching printable,
+    or a stray one) drops the anchor until the next full paint re-learns it.
     """
 
     def __init__(self, facts):
@@ -244,15 +249,15 @@ class SpinnerFilter:
         self.cells = pad_cells(facts.next_line())
         self.last_swap = time.monotonic()
         self.col = None      # 1-based cursor column; None until CR/escape tells us
+        self.row = 0         # cursor row, relative units (origin arbitrary)
         self.anchor = None   # screen column of sentinel index 0, once seen
-        self.hold = b""      # incomplete trailing escape / utf-8 char, kept for the next chunk
+        self.anchor_row = None
+        self.span = WIDTH    # chars of the sentinel actually painted last time
+        self.hold = b""      # incomplete trailing escape / utf-8 char
         self.pend = bytearray()  # candidate sentinel run: original bytes incl. buffered SGRs
         self.pend_chars = 0      # matched sentinel chars in pend (excludes SGR bytes)
-        # Sentinel start-indexes still consistent with the run. Two can be alive
-        # at once (the sentinel is periodic), so both alignments are tracked and
-        # the choice is made at flush time.
-        self.cands = []
-        self.anch_c = None       # the candidate that matches the learned anchor
+        self.cands = []          # sentinel start-indexes still consistent with the run
+        self.anch_c = None       # the candidate matching the learned anchor alignment
 
     def maybe_swap(self):
         if time.monotonic() - self.last_swap >= INTERVAL:
@@ -289,26 +294,34 @@ class SpinnerFilter:
                 return back if need > back else 0
         return 0
 
-    def _qualifies(self):
+    def _in_zone(self):
+        return (
+            self.anchor is not None
+            and self.row == self.anchor_row
+            and self.col is not None
+            and self.anchor <= self.col < self.anchor + self.span
+        )
+
+    def _choice(self, definitive):
         L = self.pend_chars
-        if self.anch_c is not None and self.anch_c in self.cands and L >= MIN_RUN:
-            return self.anch_c
         if 0 in self.cands and L >= ANCHOR_RUN:
             return 0
+        if self.anch_c is not None and self.anch_c in self.cands and (definitive or L >= SURE_RUN):
+            return self.anch_c
         return None
 
-    def _flush(self, out):
+    def _flush(self, out, poison=False):
         if not self.pend:
             return
-        L = self.pend_chars
-        chosen = self._qualifies()
-        if chosen == 0 and L >= ANCHOR_RUN:
+        chosen = None if poison else self._choice(definitive=True)
+        if poison:
+            self.anchor = None  # the zone was overwritten by ordinary content
+        if chosen == 0 and self.pend_chars >= ANCHOR_RUN:
             if self.col is not None:
-                self.anchor = self.col - L  # (re)learn where the sentinel lives
-            # A paint from the sentinel's start is a fresh frame — the moment to
-            # advance. Frames can be SHORTER than 64: narrow terminals truncate
-            # the verb (… appended), so don't wait for the full width.
-            self.maybe_swap()
+                self.anchor = self.col - self.pend_chars
+                self.anchor_row = self.row
+                self.span = self.pend_chars  # truncated terminals paint fewer than 64
+            self.maybe_swap()  # a fresh frame: the consistent moment to advance
         if chosen is not None:
             out += self._sub_pend(chosen)
         else:
@@ -337,12 +350,7 @@ class SpinnerFilter:
     def _start_run(self, b):
         cands = []
         anch_c = None
-        if (
-            self.anchor is not None
-            and self.col is not None
-            and self.anchor <= self.col < self.anchor + WIDTH
-            and b == SENT_B[self.col - self.anchor]
-        ):
+        if self._in_zone() and b == SENT_B[self.col - self.anchor]:
             anch_c = self.col - self.anchor
             cands.append(anch_c)
         if b == SENT_B[0] and 0 not in cands:
@@ -366,8 +374,8 @@ class SpinnerFilter:
                 j, complete = self._esc_end(d, i)
                 if complete and self.pend and d[i + 1 : i + 2] == b"[" and d[j - 1 : j] == b"m":
                     # SGR colors don't move the cursor: keep them inside the run,
-                    # or the shimmer Claude Code paints over the verb would split
-                    # every frame into sub-threshold fragments
+                    # or the shimmer painted over the verb would split every
+                    # frame into fragments
                     self.pend += d[i:j]
                     i = j
                     continue
@@ -391,8 +399,13 @@ class SpinnerFilter:
                             self.col += 1
                         i += 1
                         continue
-                    self._flush(out)
+                    # a run broken by ordinary text painted into the zone means
+                    # the sentinel row now shows something else (space = clearing,
+                    # which is neutral)
+                    self._flush(out, poison=self._in_zone() and b != 0x20)
                 if not self._start_run(b):
+                    if self._in_zone() and b != 0x20:
+                        self.anchor = None  # ordinary char over the sentinel zone
                     out.append(b)
                     if self.col is not None:
                         self.col += 1
@@ -400,6 +413,11 @@ class SpinnerFilter:
             elif b == 0x0D:  # CR
                 self._flush(out)
                 self.col = 1
+                out.append(b)
+                i += 1
+            elif b == 0x0A:  # LF
+                self._flush(out)
+                self.row += 1
                 out.append(b)
                 i += 1
             elif b == 0x08:  # BS
@@ -416,13 +434,13 @@ class SpinnerFilter:
                 if self.col is not None:
                     self.col += char_width(ch)
                 i += ln
-            else:  # LF, BEL, other controls, stray continuation bytes
+            else:  # BEL, other controls, stray continuation bytes
                 self._flush(out)
                 out.append(b)
                 i += 1
-        # A run that already qualifies for substitution can be painted now;
-        # an ambiguous short fragment stays buffered for the next chunk.
-        if self.pend and self._qualifies() is not None:
+        # A run that already qualifies can be painted now; an ambiguous short
+        # fragment stays buffered until we see what breaks it.
+        if self.pend and self._choice(definitive=False) is not None:
             self._flush(out)
         return bytes(out)
 
@@ -459,13 +477,29 @@ class SpinnerFilter:
                 self.col = int(body or "1")
             elif final in (b"H", b"f"):
                 parts = body.split(";")
+                self.row = int(parts[0]) if parts and parts[0] else 1
                 self.col = int(parts[1]) if len(parts) > 1 and parts[1] else 1
+                self.anchor = None  # absolute jump: a new coordinate space
             elif final == b"C":
                 if self.col is not None:
                     self.col += int(body or "1")
             elif final == b"D":
                 if self.col is not None:
                     self.col = max(1, self.col - int(body or "1"))
+            elif final == b"A":
+                self.row -= int(body or "1")
+            elif final == b"B":
+                self.row += int(body or "1")
+            elif final == b"E":
+                self.row += int(body or "1")
+                self.col = 1
+            elif final == b"F":
+                self.row -= int(body or "1")
+                self.col = 1
+            elif final == b"d":
+                self.row = int(body or "1")
+            elif final in (b"S", b"T") or (final == b"J" and body in ("2", "3")):
+                self.anchor = None  # scroll / clear: row correspondence broken
         except ValueError:
             self.col = None
 
