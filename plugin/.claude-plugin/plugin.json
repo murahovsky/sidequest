@@ -1,6 +1,6 @@
 {
   "name": "sidequest",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Fascinating one-line facts in your Claude Code spinner — about topics you love, in your language, generated locally by your own Claude.",
   "author": {
     "name": "Sasha Murahovsky",

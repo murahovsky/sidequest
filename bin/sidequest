@@ -227,9 +227,9 @@ def char_width(ch):
 
 
 def pad_cells(text):
-    """Render a fact into exactly WIDTH terminal cells. A wide char occupies
-    two cells (the second one empty), so substituting cell-for-column never
-    changes the width of the line on screen."""
+    """Render a fact into WIDTH terminal cells; returns (cells, used) where
+    used is the visible length. A wide char occupies two cells (the second
+    one empty), so substituting cell-for-column never changes line width."""
     cells = []
     for ch in " ".join(text.split()):
         w = char_width(ch)
@@ -238,9 +238,10 @@ def pad_cells(text):
         cells.append(ch)
         if w == 2:
             cells.append("")
+    used = len(cells)
     while len(cells) < WIDTH:
         cells.append(" ")
-    return cells
+    return cells, used
 
 
 class SpinnerFilter:
@@ -261,7 +262,7 @@ class SpinnerFilter:
 
     def __init__(self, facts):
         self.facts = facts
-        self.cells = pad_cells(facts.next_line())
+        self.cells, self.flen = pad_cells(facts.next_line())
         self.last_swap = time.monotonic()
         self.col = None      # 1-based cursor column; None until CR/escape tells us
         self.row = 0         # cursor row, relative units (origin arbitrary)
@@ -276,8 +277,12 @@ class SpinnerFilter:
 
     def maybe_swap(self):
         if time.monotonic() - self.last_swap >= INTERVAL:
-            self.cells = pad_cells(self.facts.next_line())
+            self.cells, self.flen = pad_cells(self.facts.next_line())
             self.last_swap = time.monotonic()
+
+    def _gap(self):
+        """Dead columns between the fact's end and the sentinel zone's end."""
+        return max(0, self.span - self.flen)
 
     def feed(self, data):
         d = self.hold + data
@@ -347,6 +352,15 @@ class SpinnerFilter:
             self.maybe_swap()  # a fresh frame: the consistent moment to advance
         if chosen is not None:
             out += self._sub_pend(chosen)
+            if time.monotonic() - self.last_swap >= INTERVAL and self.anchor is not None:
+                # No full repaint arrived in time (the desktop app repaints only
+                # deltas) — advance the fact and repaint the zone ourselves,
+                # parking the cursor back where it was.
+                self.cells, self.flen = pad_cells(self.facts.next_line())
+                self.last_swap = time.monotonic()
+                out += b"\x1b7\x1b[%dG" % self.anchor
+                out += "".join(self.cells[: self.flen]).encode("utf-8")
+                out += b"\x1b[K\x1b8"
         else:
             out += bytes(self.pend)
         self.pend = bytearray()
@@ -355,8 +369,10 @@ class SpinnerFilter:
         self.anch_c = None
 
     def _sub_pend(self, c):
-        """Replace matched chars with fact cells, keeping buffered SGRs in place
-        so Claude Code's shimmer highlight plays over the fact text."""
+        """Replace matched chars with fact cells, keeping buffered SGRs in
+        place so the shimmer plays over the fact. Cells past the fact's
+        visible end are skipped entirely — the rest of the line (ellipsis,
+        timer) then hugs the fact instead of floating 64 columns out."""
         res = bytearray()
         i, k = 0, 0
         while i < len(self.pend):
@@ -365,7 +381,8 @@ class SpinnerFilter:
                 res += self.pend[i:j]
                 i = j
             else:
-                res += self.cells[c + k].encode("utf-8")
+                if c + k < self.flen:
+                    res += self.cells[c + k].encode("utf-8")
                 k += 1
                 i += 1
         return res
@@ -408,7 +425,9 @@ class SpinnerFilter:
                     return bytes(out)
                 if complete:
                     self._apply_esc(d[i:j])
-                out += d[i:j]
+                    out += self._remap_esc(d[i:j])
+                else:
+                    out += d[i:j]
                 i = j
             elif 0x20 <= b < 0x7F:
                 if self.pend:
@@ -489,6 +508,29 @@ class SpinnerFilter:
                 return min(ends), True
             return n, False
         return i + 2, True  # two-byte escape
+
+    def _remap_esc(self, seq):
+        """Shift absolute column jumps on the anchor row left by the dead-zone
+        width, so positioned repaints (the timer) land right after the fact."""
+        gap = self._gap()
+        if (
+            gap == 0
+            or self.anchor is None
+            or self.row != self.anchor_row
+            or len(seq) < 3
+            or seq[1:2] != b"["
+            or seq[-1:] != b"G"
+        ):
+            return seq
+        try:
+            n = int(seq[2:-1] or b"1")
+        except ValueError:
+            return seq
+        if n >= self.anchor + self.span:
+            n -= gap
+        elif n > self.anchor + self.flen:
+            n = self.anchor + self.flen
+        return b"\x1b[%dG" % n
 
     def _apply_esc(self, seq):
         if len(seq) < 3 or seq[1:2] != b"[":
