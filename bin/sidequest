@@ -246,7 +246,8 @@ class SpinnerFilter:
         self.col = None      # 1-based cursor column; None until CR/escape tells us
         self.anchor = None   # screen column of sentinel index 0, once seen
         self.hold = b""      # incomplete trailing escape / utf-8 char, kept for the next chunk
-        self.pend = bytearray()  # candidate sentinel run, original bytes
+        self.pend = bytearray()  # candidate sentinel run: original bytes incl. buffered SGRs
+        self.pend_chars = 0      # matched sentinel chars in pend (excludes SGR bytes)
         # Sentinel start-indexes still consistent with the run. Two can be alive
         # at once (the sentinel is periodic), so both alignments are tracked and
         # the choice is made at flush time.
@@ -289,7 +290,7 @@ class SpinnerFilter:
         return 0
 
     def _qualifies(self):
-        L = len(self.pend)
+        L = self.pend_chars
         if self.anch_c is not None and self.anch_c in self.cands and L >= MIN_RUN:
             return self.anch_c
         if 0 in self.cands and L >= ANCHOR_RUN:
@@ -299,20 +300,39 @@ class SpinnerFilter:
     def _flush(self, out):
         if not self.pend:
             return
-        L = len(self.pend)
+        L = self.pend_chars
         chosen = self._qualifies()
         if chosen == 0 and L >= ANCHOR_RUN:
             if self.col is not None:
                 self.anchor = self.col - L  # (re)learn where the sentinel lives
-            if L == WIDTH:
-                self.maybe_swap()  # full repaint: the consistent moment to advance
+            # A paint from the sentinel's start is a fresh frame — the moment to
+            # advance. Frames can be SHORTER than 64: narrow terminals truncate
+            # the verb (… appended), so don't wait for the full width.
+            self.maybe_swap()
         if chosen is not None:
-            out += "".join(self.cells[chosen : chosen + L]).encode("utf-8")
+            out += self._sub_pend(chosen)
         else:
             out += bytes(self.pend)
         self.pend = bytearray()
+        self.pend_chars = 0
         self.cands = []
         self.anch_c = None
+
+    def _sub_pend(self, c):
+        """Replace matched chars with fact cells, keeping buffered SGRs in place
+        so Claude Code's shimmer highlight plays over the fact text."""
+        res = bytearray()
+        i, k = 0, 0
+        while i < len(self.pend):
+            if self.pend[i] == 0x1B:
+                j, _ = self._esc_end(self.pend, i)
+                res += self.pend[i:j]
+                i = j
+            else:
+                res += self.cells[c + k].encode("utf-8")
+                k += 1
+                i += 1
+        return res
 
     def _start_run(self, b):
         cands = []
@@ -330,6 +350,7 @@ class SpinnerFilter:
         if not cands:
             return False
         self.pend.append(b)
+        self.pend_chars = 1
         self.cands = cands
         self.anch_c = anch_c
         if self.col is not None:
@@ -343,6 +364,13 @@ class SpinnerFilter:
             b = d[i]
             if b == 0x1B:
                 j, complete = self._esc_end(d, i)
+                if complete and self.pend and d[i + 1 : i + 2] == b"[" and d[j - 1 : j] == b"m":
+                    # SGR colors don't move the cursor: keep them inside the run,
+                    # or the shimmer Claude Code paints over the verb would split
+                    # every frame into sub-threshold fragments
+                    self.pend += d[i:j]
+                    i = j
+                    continue
                 self._flush(out)
                 if not complete and n - i <= 8192:
                     self.hold = bytes(d[i:])  # escape split across chunks
@@ -353,11 +381,12 @@ class SpinnerFilter:
                 i = j
             elif 0x20 <= b < 0x7F:
                 if self.pend:
-                    L = len(self.pend)
+                    L = self.pend_chars
                     alive = [c for c in self.cands if c + L < WIDTH and b == SENT_B[c + L]]
                     if alive:
                         self.cands = alive
                         self.pend.append(b)
+                        self.pend_chars += 1
                         if self.col is not None:
                             self.col += 1
                         i += 1
