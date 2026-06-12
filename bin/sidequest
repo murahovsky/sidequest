@@ -43,8 +43,11 @@ SENT_B = SENTINEL.encode()
 WIDTH = 64
 COL0 = 3  # Ink draws the verb starting at terminal column 3 (after "✳ ")
 HOME = os.path.expanduser("~")
-DATA_DIR = os.environ.get("SIDEQUEST_HOME", os.path.join(HOME, ".claude", "sidequest"))
-SETTINGS_PATH = os.environ.get("SIDEQUEST_SETTINGS", os.path.join(HOME, ".claude", "settings.json"))
+# Follow the instance: with CLAUDE_CONFIG_DIR set, settings/plugins/data all
+# live there — writing to ~/.claude would feed a different Claude.
+CONFIG_DIR = os.environ.get("CLAUDE_CONFIG_DIR", os.path.join(HOME, ".claude"))
+DATA_DIR = os.environ.get("SIDEQUEST_HOME", os.path.join(CONFIG_DIR, "sidequest"))
+SETTINGS_PATH = os.environ.get("SIDEQUEST_SETTINGS", os.path.join(CONFIG_DIR, "settings.json"))
 INTERVAL = float(os.environ.get("SIDEQUEST_INTERVAL", "3"))
 CHILD = os.environ.get("SIDEQUEST_CMD", "claude")
 REPO = os.environ.get("SIDEQUEST_REPO", "murahovsky/sidequest")

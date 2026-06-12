@@ -9,7 +9,7 @@ Topic requested: $ARGUMENTS
 
 This flow is mechanical: a fast headless model produces the facts, NOT you. Do not compose facts, do not deliberate — execute the steps immediately.
 
-Script: `sh "${CLAUDE_PLUGIN_ROOT}/scripts/run.sh"`. If that placeholder is not expanded to a real path, use `sh "$(cat ~/.claude/sidequest/plugin-root)/scripts/run.sh"` instead.
+Script: `sh "${CLAUDE_PLUGIN_ROOT}/scripts/run.sh"`. If that placeholder is not expanded to a real path, use `sh "$(cat "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/sidequest/plugin-root")/scripts/run.sh"` instead.
 
 1. If the topic above is empty, ask with the AskUserQuestion tool — one question in the user's language, 3-4 short topic options tailored to them plus a "Surprise me" eclectic-mix option; mention they can type anything via the built-in "Other". Wait for the answer.
 
@@ -32,4 +32,4 @@ Script: `sh "${CLAUDE_PLUGIN_ROOT}/scripts/run.sh"`. If that placeholder is not 
    FACTS
    ```
 
-   Rules: ≤ 64 chars per line (hard max 80), true and verifiable, surprising over textbook, standalone, no numbering/quotes/emoji/trailing punctuation, no near-duplicates. Verify the `ok` status, then still run `generate-rest`. If `add` also errors: as a last resort set `spinnerVerbs: {"mode": "replace", "verbs": [facts ≤ 60 chars]}` via the Edit tool in `~/.claude/settings.json` (preserving all other keys, not touching `spinnerTipsOverride`) and Write the pool to `~/.claude/sidequest/facts.json` (`{"topic", "language", "facts"}`).
+   Rules: ≤ 60 chars per line (hard max 64), true and verifiable, surprising over textbook, standalone, no numbering/quotes/emoji/trailing punctuation, no near-duplicates. Verify the `ok` status, then still run `generate-rest`. If `add` also errors: as a last resort set `spinnerVerbs: {"mode": "replace", "verbs": [facts ≤ 60 chars]}` via the Edit tool in `${CLAUDE_CONFIG_DIR:-~/.claude}/settings.json` (preserving all other keys, not touching `spinnerTipsOverride`) and Write the pool to `${CLAUDE_CONFIG_DIR:-~/.claude}/sidequest/facts.json` (`{"topic", "language", "facts"}`).

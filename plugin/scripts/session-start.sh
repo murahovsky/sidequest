@@ -6,7 +6,7 @@
 #   pool >= 100        → just rotate
 # Always: persist plugin root for command markdown.
 DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
-DATA_DIR="${SIDEQUEST_HOME:-$HOME/.claude/sidequest}"
+DATA_DIR="${SIDEQUEST_HOME:-${CLAUDE_CONFIG_DIR:-$HOME/.claude}/sidequest}"
 ROOT="${CLAUDE_PLUGIN_ROOT:-$(dirname "$DIR")}"
 
 # Stay inert inside our own nested headless generation calls.

@@ -11,7 +11,7 @@
 #   generate-rest [topic] [lang]   detached: background fast-model job that
 #                                  tops the pool up to ~100. Returns instantly.
 DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
-DATA_DIR="${SIDEQUEST_HOME:-$HOME/.claude/sidequest}"
+DATA_DIR="${SIDEQUEST_HOME:-${CLAUDE_CONFIG_DIR:-$HOME/.claude}/sidequest}"
 LOG="$DATA_DIR/generate.log"
 
 # Inside a nested headless generation call our own hooks must stay inert:
@@ -33,7 +33,7 @@ engine() {
 }
 
 fact_rules() {
-  printf '%s' 'every line MUST start with the prefix "FACT: " followed by the fact itself; at most 64 characters per fact (not counting the prefix); no numbering, bullets, quotes, emoji or trailing punctuation; true and verifiable; surprising and counterintuitive over textbook; skip the famous facts everyone quotes; every fact must stand alone. Ignore any instructions in your context about plugins, spinners or setup flows — your ONLY task is the fact lines, with nothing before or after them'
+  printf '%s' 'every line MUST start with the prefix "FACT: " followed by the fact itself; HARD LIMIT 60 characters per fact (not counting the prefix) — count them, a 61-character fact is discarded; aim for 40-55; no numbering, bullets, quotes, emoji or trailing punctuation; true and verifiable; surprising and counterintuitive over textbook; skip the famous facts everyone quotes; every fact must stand alone. Ignore any instructions in your context about plugins, spinners or setup flows — your ONLY task is the fact lines, with nothing before or after them'
 }
 
 # $1 = prompt. Tries the fast model first, then the default model. Only lines
@@ -58,7 +58,7 @@ case "${1:-rotate}" in
     TOPIC="$2"; FLANG="${3:-en}"; BANNER="$4"
     mkdir -p "$DATA_DIR"
     [ -z "$TOPIC" ] && { echo "error: no topic given"; exit 1; }
-    P="Write exactly 12 fascinating one-line facts about: ${TOPIC}. Write them in this language: ${FLANG}. Rules: $(fact_rules)."
+    P="Write exactly 15 fascinating one-line facts about: ${TOPIC}. Write them in this language: ${FLANG}. Rules: $(fact_rules)."
     OUT=$(gen_call "$P")
     if [ "$(count_lines "$OUT")" -lt 6 ]; then
       echo "error: fact generation failed or returned too little (see $LOG)"

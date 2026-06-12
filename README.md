@@ -52,7 +52,7 @@ If you launch plain `claude` instead, facts still show — just one fresh fact p
 
 **Will facts be true?** The generation prompt demands verifiable facts and bans inventing them. It's still an LLM — treat the spinner as delight, not as a citation source.
 
-**Why are facts short?** The spinner is one terminal line. Facts longer than 80 characters are dropped by the rotator, so the generator aims for ≤ 64.
+**Why are facts short?** The spinner is one terminal line. Facts longer than 64 characters are dropped by the rotator, so the generator aims for ≤ 60.
 
 **How do I uninstall completely?**
 

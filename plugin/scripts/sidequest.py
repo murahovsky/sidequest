@@ -31,15 +31,18 @@ import tempfile
 from datetime import date
 
 HOME = os.path.expanduser("~")
-DATA_DIR = os.environ.get("SIDEQUEST_HOME", os.path.join(HOME, ".claude", "sidequest"))
-SETTINGS_PATH = os.environ.get("SIDEQUEST_SETTINGS", os.path.join(HOME, ".claude", "settings.json"))
+# Follow the instance: with CLAUDE_CONFIG_DIR set, settings/plugins/data all
+# live there — writing to ~/.claude would feed a different Claude.
+CONFIG_DIR = os.environ.get("CLAUDE_CONFIG_DIR", os.path.join(HOME, ".claude"))
+DATA_DIR = os.environ.get("SIDEQUEST_HOME", os.path.join(CONFIG_DIR, "sidequest"))
+SETTINGS_PATH = os.environ.get("SIDEQUEST_SETTINGS", os.path.join(CONFIG_DIR, "settings.json"))
 FACTS_PATH = os.path.join(DATA_DIR, "facts.json")
 STATE_PATH = os.path.join(DATA_DIR, "state.json")
 BACKUP_PATH = os.path.join(DATA_DIR, "settings.backup.json")
 
 TIPS_PER_BATCH = 30
 TICK_TIPS = 3
-MAX_TIP_LEN = 80    # facts longer than this are dropped entirely
+MAX_TIP_LEN = 64    # facts longer than this are dropped entirely (spinner is one line)
 MAX_VERB_LEN = 60   # only facts this short go into the verb slot
 MAX_POOL = 300
 SPARKLE_TICKS = 24  # ~2 minutes of launch sparkles at one tick per 5s

@@ -8,15 +8,17 @@ import os from "node:os";
 import path from "node:path";
 
 const HOME = os.homedir();
-const DATA_DIR = process.env.SIDEQUEST_HOME || path.join(HOME, ".claude", "sidequest");
-const SETTINGS_PATH = process.env.SIDEQUEST_SETTINGS || path.join(HOME, ".claude", "settings.json");
+// Follow the instance: with CLAUDE_CONFIG_DIR set, settings/plugins/data all live there.
+const CONFIG_DIR = process.env.CLAUDE_CONFIG_DIR || path.join(HOME, ".claude");
+const DATA_DIR = process.env.SIDEQUEST_HOME || path.join(CONFIG_DIR, "sidequest");
+const SETTINGS_PATH = process.env.SIDEQUEST_SETTINGS || path.join(CONFIG_DIR, "settings.json");
 const FACTS_PATH = path.join(DATA_DIR, "facts.json");
 const STATE_PATH = path.join(DATA_DIR, "state.json");
 const BACKUP_PATH = path.join(DATA_DIR, "settings.backup.json");
 
 const TIPS_PER_BATCH = 30;
 const TICK_TIPS = 3;
-const MAX_TIP_LEN = 80;
+const MAX_TIP_LEN = 64;
 const MAX_VERB_LEN = 60;
 const MAX_POOL = 300;
 const SPARKLE_TICKS = 24;
