@@ -13,7 +13,7 @@ Script: `sh "${CLAUDE_PLUGIN_ROOT}/scripts/run.sh"`. If that placeholder is not 
 
 1. If the topic above is empty, ask with the AskUserQuestion tool — one question in the user's language, 3-4 short topic options tailored to them plus a "Surprise me" eclectic-mix option; mention they can type anything via the built-in "Other". Wait for the answer.
 
-2. Set `<lang>` = the language the user converses in (BCP-47, e.g. `ru`); `<banner>` = a short launch line in that language, ≤ 50 chars, e.g. "Smart Spinner включён: факты о космосе".
+2. Set `<lang>` = the language the user converses in (BCP-47, e.g. `ru`); `<banner>` = a short launch line in that language, ≤ 50 chars, no emoji, e.g. "Smart Spinner включён: факты о космосе".
 
 3. Run as two separate Bash calls, no commentary in between — first instant launch feedback, then generation (~10 s, prints `ok ...`):
 

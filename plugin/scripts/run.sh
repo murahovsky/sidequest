@@ -1,7 +1,8 @@
 #!/bin/sh
 # Smart Spinner runner.
-#   rotate | tick | off            silent engine commands (hooks / daemon)
+#   rotate | off                   silent engine commands (hooks)
 #   add <topic> <lang> [banner]    facts on stdin; prints a status line
+#   warmup <banner>                instant launch line in the spinner
 #   count | list | meta            pool introspection (prints)
 #   generate-first <topic> <lang> [banner]
 #                                  synchronous: asks a fast headless model for
@@ -9,21 +10,15 @@
 #                                  (~5-10 s). Prints the add status line.
 #   generate-rest [topic] [lang]   detached: background fast-model job that
 #                                  tops the pool up to ~100. Returns instantly.
-#   tick-start | tick-stop | tick-loop
-#                                  background ticker: swaps the spinner fact
-#                                  every SMART_SPINNER_INTERVAL (default 5) s
-#                                  while Claude works, via settings hot-reload.
 DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 DATA_DIR="${SMART_SPINNER_HOME:-$HOME/.claude/smart-spinner}"
-PIDFILE="$DATA_DIR/tick.pid"
 LOG="$DATA_DIR/generate.log"
-MAX_TICKS="${SMART_SPINNER_MAX_TICKS:-360}"
 
 # Inside a nested headless generation call our own hooks must stay inert:
-# no recursion into generate-*, and no touching the parent session's ticker.
+# no recursion into generate-*, no churning the parent's spinner settings.
 if [ -n "$SMART_SPINNER_NESTED" ]; then
   case "${1:-rotate}" in
-    rotate|tick|tick-start|tick-stop|tick-loop|off|warmup|generate-first|generate-rest|generate-rest-loop)
+    rotate|tick|off|warmup|generate-first|generate-rest|generate-rest-loop)
       exit 0
       ;;
   esac
@@ -96,27 +91,6 @@ ${AVOID}"
       OUT=$(gen_call "$P")
       [ "$(count_lines "$OUT")" -ge 5 ] && printf '%s\n' "$OUT" | sh "$0" add "$TOPIC" "$FLANG" >>"$LOG" 2>&1
     done
-    ;;
-  tick-start)
-    mkdir -p "$DATA_DIR"
-    nohup sh "$0" tick-loop >/dev/null 2>&1 &
-    printf '%s' "$!" > "$PIDFILE"
-    ;;
-  tick-stop)
-    # No kill: the loop notices the missing pidfile within one interval and
-    # exits on its own — avoids any pid-reuse hazard.
-    rm -f "$PIDFILE"
-    ;;
-  tick-loop)
-    ME=$$
-    N=0
-    while [ "$N" -lt "$MAX_TICKS" ]; do
-      [ "$(cat "$PIDFILE" 2>/dev/null)" = "$ME" ] || exit 0
-      engine tick
-      sleep "${SMART_SPINNER_INTERVAL:-5}"
-      N=$((N+1))
-    done
-    [ "$(cat "$PIDFILE" 2>/dev/null)" = "$ME" ] && rm -f "$PIDFILE"
     ;;
   *)
     engine "$@"

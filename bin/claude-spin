@@ -1,0 +1,369 @@
+#!/usr/bin/env python3
+"""claude-spin — run Claude Code with live spinner facts.
+
+Claude Code samples its spinner verb ONCE per user turn, so settings-based
+rotation can never change the visible fact mid-turn. This wrapper fixes that
+at the display layer: it sets the spinner verb to a unique 64-column sentinel
+token and, sitting on a pty between the terminal and Claude Code, substitutes
+that token in the output stream with the current fact.
+
+Ink (Claude Code's renderer) repaints the verb both as whole lines and as
+positioned partial slices (ESC[nG + a few chars), so a literal replace is not
+enough: the filter tracks the cursor column and substitutes any slice of the
+sentinel positionally. The fact only advances when a full repaint passes by,
+keeping the on-screen line consistent.
+
+Usage: claude-spin [any claude args...]
+Env:   SMART_SPINNER_INTERVAL  seconds between facts (default 3)
+       SMART_SPINNER_CMD       child command (default: claude; for tests)
+"""
+import fcntl
+import json
+import os
+import pty
+import random
+import select
+import signal
+import sys
+import tempfile
+import termios
+import time
+import tty
+
+SENTINEL = "SMARTSPINNERFACT" * 4  # 64 ascii columns, printed by Claude Code itself
+SENT_B = SENTINEL.encode()
+WIDTH = 64
+COL0 = 3  # Ink draws the verb starting at terminal column 3 (after "✳ ")
+HOME = os.path.expanduser("~")
+DATA_DIR = os.environ.get("SMART_SPINNER_HOME", os.path.join(HOME, ".claude", "smart-spinner"))
+SETTINGS_PATH = os.environ.get("SMART_SPINNER_SETTINGS", os.path.join(HOME, ".claude", "settings.json"))
+INTERVAL = float(os.environ.get("SMART_SPINNER_INTERVAL", "3"))
+CHILD = os.environ.get("SMART_SPINNER_CMD", "claude")
+IDLE_LINE = "Smart Spinner: facts will appear here once you pick a topic"
+
+
+def load_json(path, default):
+    try:
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:  # noqa: BLE001
+        return default
+
+
+def atomic_write(path, obj):
+    d = os.path.dirname(path)
+    os.makedirs(d, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=d, prefix=".smart-spinner-")
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        json.dump(obj, f, ensure_ascii=False, indent=2)
+        f.write("\n")
+    os.replace(tmp, path)
+
+
+def set_sentinel():
+    s = load_json(SETTINGS_PATH, {})
+    if not isinstance(s, dict):
+        return
+    s["spinnerVerbs"] = {"mode": "replace", "verbs": [SENTINEL]}
+    atomic_write(SETTINGS_PATH, s)
+
+
+def unset_sentinel():
+    """On exit, swap the sentinel back to plain fact verbs (per-turn mode)."""
+    s = load_json(SETTINGS_PATH, None)
+    if not isinstance(s, dict):
+        return
+    v = s.get("spinnerVerbs")
+    if not (isinstance(v, dict) and v.get("verbs") == [SENTINEL]):
+        return
+    doc = load_json(os.path.join(DATA_DIR, "facts.json"), {})
+    raw = doc.get("facts") if isinstance(doc, dict) else None
+    pool = [x.strip() for x in raw if isinstance(x, str) and x.strip()] if isinstance(raw, list) else []
+    pool = [x for x in pool if len(x) <= 60]
+    if pool:
+        s["spinnerVerbs"] = {"mode": "replace", "verbs": [f"{x} │" for x in random.sample(pool, min(30, len(pool)))]}
+    else:
+        s.pop("spinnerVerbs", None)
+    atomic_write(SETTINGS_PATH, s)
+
+
+class Facts:
+    def __init__(self):
+        self.mtime = None
+        self.pool = []
+        self.queue = []
+        self.banner = None
+        self.banner_left = 2  # facts shown under the banner before it retires
+        self.banner_done = False
+
+    def refresh(self):
+        path = os.path.join(DATA_DIR, "facts.json")
+        try:
+            m = os.stat(path).st_mtime
+        except OSError:
+            m = 0
+        if m != self.mtime:
+            self.mtime = m
+            doc = load_json(path, {})
+            raw = doc.get("facts") if isinstance(doc, dict) else None
+            if not isinstance(raw, list):
+                raw = []
+            pool = [" ".join(x.split()) for x in raw if isinstance(x, str) and x.strip()]
+            self.pool = [x for x in pool if len(x) <= WIDTH]  # longer ones would truncate mid-word
+            self.queue = []
+        if not self.banner_done and self.banner is None:
+            # warmup stores the launch banner in state.json the moment the
+            # user picks a topic — before any facts exist
+            st = load_json(os.path.join(DATA_DIR, "state.json"), {})
+            b = st.get("banner") if isinstance(st, dict) else None
+            if isinstance(b, str) and b.strip():
+                self.banner = " ".join(b.split())
+
+    def _retire_banner(self):
+        self.banner_done = True
+        self.banner = None
+        p = os.path.join(DATA_DIR, "state.json")
+        st = load_json(p, None)
+        if isinstance(st, dict) and "banner" in st:
+            st.pop("banner", None)
+            try:
+                atomic_write(p, st)
+            except OSError:
+                pass
+
+    def next_line(self):
+        self.refresh()
+        if self.banner and not self.banner_done:
+            if not self.pool:
+                return self.banner  # generation still running — hold the launch line
+            if self.banner_left > 0:
+                self.banner_left -= 1
+                return self.banner
+            self._retire_banner()
+        if not self.pool:
+            return IDLE_LINE
+        if not self.queue:
+            self.queue = random.sample(self.pool, len(self.pool))
+        return self.queue.pop()
+
+
+def pad(text):
+    t = text[:WIDTH]
+    return t + " " * (WIDTH - len(t))
+
+
+class SpinnerFilter:
+    """Column-tracking stream filter substituting sentinel slices with facts."""
+
+    def __init__(self, facts):
+        self.facts = facts
+        self.fact = pad(facts.next_line())
+        self.last_swap = time.monotonic()
+        self.col = None  # unknown until a CR / column-addressing sequence
+        self.carry = b""
+
+    def maybe_swap(self):
+        if time.monotonic() - self.last_swap >= INTERVAL:
+            self.fact = pad(self.facts.next_line())
+            self.last_swap = time.monotonic()
+
+    def feed(self, data):
+        d = self.carry + data
+        self.carry = b""
+        # withhold an incomplete trailing escape sequence
+        esc = d.rfind(b"\x1b", max(0, len(d) - 24))
+        if esc != -1:
+            tail = d[esc:]
+            if not self._esc_complete(tail):
+                self.carry, d = tail, d[:esc]
+        # withhold an incomplete trailing utf-8 character
+        cut = self._utf8_tail(d)
+        if cut:
+            self.carry = d[-cut:] + self.carry
+            d = d[:-cut]
+        return self._walk(d)
+
+    @staticmethod
+    def _esc_complete(seq):
+        if len(seq) < 2:
+            return False
+        kind = seq[1:2]
+        if kind == b"[":
+            for b in seq[2:]:
+                if 0x40 <= b <= 0x7E:
+                    return True
+            return False
+        if kind == b"]":
+            return b"\x07" in seq or b"\x1b\\" in seq
+        return True  # two-byte escape
+
+    @staticmethod
+    def _utf8_tail(d):
+        for back in range(1, min(4, len(d)) + 1):
+            b = d[-back]
+            if b < 0x80:
+                return 0
+            if b >= 0xC0:  # leading byte: complete if its char fits
+                need = 2 if b < 0xE0 else 3 if b < 0xF0 else 4
+                return back if need > back else 0
+        return 0
+
+    def _walk(self, d):
+        out = bytearray()
+        i, n = 0, len(d)
+        # a full repaint in this chunk is the safe moment to advance the fact
+        if SENT_B in d:
+            self.maybe_swap()
+        while i < n:
+            b = d[i]
+            if b == 0x1B:
+                j = self._esc_end(d, i)
+                self._apply_esc(d[i:j])
+                out += d[i:j]
+                i = j
+            elif b == 0x0D:  # CR
+                self.col = 1
+                out.append(b)
+                i += 1
+            elif b in (0x0A, 0x07):  # LF keeps column; BEL no-op
+                out.append(b)
+                i += 1
+            elif b == 0x08:  # BS
+                if self.col is not None and self.col > 1:
+                    self.col -= 1
+                out.append(b)
+                i += 1
+            elif 0x20 <= b < 0x7F:
+                if (
+                    self.col is not None
+                    and COL0 <= self.col < COL0 + WIDTH
+                    and chr(b) == SENTINEL[self.col - COL0]
+                ):
+                    out += self.fact[self.col - COL0].encode("utf-8")
+                else:
+                    out.append(b)
+                if self.col is not None:
+                    self.col += 1
+                i += 1
+            elif b >= 0xC0:  # utf-8 lead byte: copy the whole character
+                ln = 2 if b < 0xE0 else 3 if b < 0xF0 else 4
+                out += d[i : i + ln]
+                if self.col is not None:
+                    self.col += 1
+                i += ln
+            else:  # stray continuation/control byte
+                out.append(b)
+                i += 1
+        return bytes(out)
+
+    @staticmethod
+    def _esc_end(d, i):
+        if i + 1 >= len(d):
+            return len(d)
+        kind = d[i + 1 : i + 2]
+        if kind == b"[":
+            j = i + 2
+            while j < len(d) and not (0x40 <= d[j] <= 0x7E):
+                j += 1
+            return min(j + 1, len(d))
+        if kind == b"]":
+            bel = d.find(b"\x07", i)
+            st = d.find(b"\x1b\\", i + 2)
+            ends = [e for e in (bel + 1 if bel != -1 else -1, st + 2 if st != -1 else -1) if e > 0]
+            return min(ends) if ends else len(d)
+        return min(i + 2, len(d))
+
+    def _apply_esc(self, seq):
+        if len(seq) < 3 or seq[1:2] != b"[":
+            return
+        final = seq[-1:]
+        body = seq[2:-1].decode("ascii", "replace")
+        try:
+            if final == b"G":
+                self.col = int(body or "1")
+            elif final in (b"H", b"f"):
+                parts = body.split(";")
+                self.col = int(parts[1]) if len(parts) > 1 and parts[1] else 1
+            elif final == b"C":
+                if self.col is not None:
+                    self.col += int(body or "1")
+            elif final == b"D":
+                if self.col is not None:
+                    self.col = max(1, self.col - int(body or "1"))
+        except ValueError:
+            self.col = None
+
+
+def main():
+    os.environ["SMART_SPINNER_PTY"] = "1"
+    set_sentinel()
+    pid, master = pty.fork()
+    if pid == 0:
+        try:
+            os.execvp(CHILD, [CHILD] + sys.argv[1:])
+        except OSError as e:
+            print(f"claude-spin: cannot exec {CHILD}: {e}", file=sys.stderr)
+            os._exit(127)
+
+    def push_winsize(*_):
+        try:
+            size = fcntl.ioctl(0, termios.TIOCGWINSZ, b"\0" * 8)
+            fcntl.ioctl(master, termios.TIOCSWINSZ, size)
+        except OSError:
+            pass
+
+    interactive = sys.stdin.isatty()
+    old_attrs = None
+    if interactive:
+        push_winsize()
+        signal.signal(signal.SIGWINCH, push_winsize)
+        try:
+            old_attrs = termios.tcgetattr(0)
+            tty.setraw(0)
+        except termios.error:
+            old_attrs = None
+
+    filt = SpinnerFilter(Facts())
+    dbg = os.environ.get("SMART_SPINNER_DEBUG")
+    status = 0
+    try:
+        while True:
+            try:
+                ready, _, _ = select.select([0, master], [], [], 0.25)
+            except InterruptedError:
+                continue
+            if 0 in ready:
+                try:
+                    data = os.read(0, 65536)
+                except OSError:
+                    data = b""
+                if data:
+                    os.write(master, data)
+            if master in ready:
+                try:
+                    data = os.read(master, 65536)
+                except OSError:
+                    data = b""
+                if not data:
+                    break
+                if dbg:
+                    with open(dbg, "ab") as df:
+                        df.write(b"\n<<CHUNK %d>>" % int(time.monotonic() * 1000))
+                        df.write(data)
+                os.write(1, filt.feed(data))
+        if filt.carry:
+            os.write(1, filt.carry)
+    finally:
+        if old_attrs is not None:
+            termios.tcsetattr(0, termios.TCSADRAIN, old_attrs)
+        unset_sentinel()
+    try:
+        _, st = os.waitpid(pid, 0)
+        status = os.waitstatus_to_exitcode(st)
+    except ChildProcessError:
+        status = 0
+    sys.exit(status)
+
+
+if __name__ == "__main__":
+    main()

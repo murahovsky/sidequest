@@ -16,16 +16,25 @@ One command (requires Node.js):
 npx github:murahovsky/smart-spinner
 ```
 
-The installer drops you straight into a Claude session that explains the setup and asks what topic fascinates you (with an interactive picker). Pick one — the first facts go live in your spinner within seconds (with a little ✨ launch moment), and the pool quietly tops itself up to ~100. Your spinner is never boring again.
+The installer drops you straight into a Claude session that explains the setup and asks what topic fascinates you (with an interactive picker). Pick one — a launch line appears in the spinner immediately, the first facts go live ~10 seconds later, and the pool quietly tops itself up to ~100.
 
-Or manually, inside Claude Code:
+Then launch Claude through the bundled wrapper to get **live facts — a new one every ~3 seconds, even mid-thinking**:
+
+```sh
+claude-spin            # all claude args pass through, e.g. claude-spin -c
+alias claude=claude-spin   # optional: make it the default
+```
+
+Without the wrapper the plugin still works, with one limitation: Claude Code samples the spinner text once per message, so you get one fresh fact per message instead of a rotating stream.
+
+Manual install, inside Claude Code:
 
 ```
 /plugin marketplace add murahovsky/smart-spinner
 /plugin install smart-spinner@smart-spinner
 ```
 
-Then start a new session and say anything (Claude can't speak first) — or start it as `claude "Set up Smart Spinner"`.
+Then start a new session and say anything (Claude can't speak first) — or start it as `claude-spin "Set up Smart Spinner"`.
 
 ## Commands
 
@@ -39,7 +48,8 @@ Then start a new session and say anything (Claude can't speak first) — or star
 
 - Claude Code has a documented setting for the spinner verb line: `spinnerVerbs`. It hot-reloads — changes apply mid-session, no restart. The tips line is left untouched.
 - On setup, a fast headless model (`claude -p --model haiku`) writes the first 12 facts straight into the spinner — live in ~10 seconds — then a detached background job tops the pool up to ~100 one-liners in `~/.claude/smart-spinner/facts.json`. Your main session never composes facts, so setup stays fast even on heavyweight models; generation is the only step that costs tokens.
-- A tiny hook rotates a fresh shuffled batch of facts into `~/.claude/settings.json` on every session start and every message — and the next fact slides in at every step Claude takes (PreToolUse/PostToolUse hooks), with a background ticker keeping the queue fresh during long waits. Claude Code pins the spinner text for the duration of one "phase", so the fact changes exactly as often as Claude moves between thinking and tools. The engine is dependency-free Python (with a Node fallback), runs in milliseconds, and prints nothing.
+- Claude Code samples the spinner verb **once per message** (verified empirically — settings hot-reload updates the list, never the text already on screen). So hooks rotate a fresh shuffled batch into `~/.claude/settings.json` on every session start and message: one new fact per message, zero extra processes.
+- `claude-spin` removes that limit at the display layer: it sets the verb to a 64-column sentinel token and, sitting on a pty between your terminal and Claude Code, substitutes the token in the output stream with the current fact — tracking cursor columns so even Ink's partial repaints stay consistent. The fact swaps every ~3 seconds (`SMART_SPINNER_INTERVAL` to change). Dependency-free Python stdlib, ~250 lines.
 - Before its first write, the plugin backs up your settings to `~/.claude/smart-spinner/settings.backup.json`. `/smart-spinner:off` restores the spinner keys from that backup.
 
 ## FAQ

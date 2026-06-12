@@ -23,6 +23,10 @@ const SPARKLE_TICKS = 24;
 const MANAGED_KEYS = ["spinnerTipsOverride", "spinnerVerbs"];
 const SPARK = "✨";
 const VERB_MARK = "│"; // end-of-fact separator: Claude Code appends its own "…" to verbs
+// Inside a claude-spin pty session the wrapper substitutes this token in the
+// output stream, so the verb slot must hold the token — not actual facts.
+const SENTINEL = "SMARTSPINNERFACT".repeat(4);
+const PTY_MODE = Boolean(process.env.SMART_SPINNER_PTY);
 
 const readJson = (p) => JSON.parse(fs.readFileSync(p, "utf8"));
 
@@ -116,7 +120,8 @@ function restoreTips(settings) {
 
 function writeDisplay(settings, state, verbs) {
   restoreTips(settings);
-  if (verbs) settings.spinnerVerbs = { mode: "replace", verbs };
+  if (PTY_MODE) settings.spinnerVerbs = { mode: "replace", verbs: [SENTINEL] };
+  else if (verbs) settings.spinnerVerbs = { mode: "replace", verbs };
   atomicWrite(SETTINGS_PATH, settings);
   atomicWrite(STATE_PATH, state);
 }
@@ -128,8 +133,9 @@ function rotate() {
   ensureBackup(existed);
   const state = readJsonOr(STATE_PATH, {});
   const batch = takeBatch(facts, state, TIPS_PER_BATCH);
-  const banner = typeof state.banner === "string" && state.banner.trim() ? state.banner.trim() : null;
-  delete state.banner;
+  // In pty mode the wrapper itself shows and consumes the launch banner.
+  const banner = !PTY_MODE && typeof state.banner === "string" && state.banner.trim() ? state.banner.trim() : null;
+  if (!PTY_MODE) delete state.banner;
   let display;
   if (banner) {
     display = [`${SPARK} ${banner.slice(0, 54)} ${SPARK}`, ...batch.map(sparkleLine)];
@@ -168,6 +174,7 @@ function warmup(banner) {
   const { settings, existed } = loadSettings();
   ensureBackup(existed);
   const state = readJsonOr(STATE_PATH, {});
+  state.banner = banner.trim(); // the pty wrapper picks this up immediately
   writeDisplay(settings, state, [`${SPARK} ${banner.trim().slice(0, 54)} ${SPARK} ${VERB_MARK}`]);
   console.log("ok warming");
 }

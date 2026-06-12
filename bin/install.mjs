@@ -52,6 +52,9 @@ try {
 console.log(`
 ✓ Installed.
 
+For LIVE facts (a new one every ~3s even mid-thinking), launch Claude via:
+  claude-spin                    (alias claude=claude-spin to make it default)
+
 Commands inside Claude Code:
   /smart-spinner:topic <topic>   pick or change the topic
   /smart-spinner:off             turn facts off

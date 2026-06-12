@@ -46,6 +46,10 @@ SPARKLE_TICKS = 24  # ~2 minutes of launch sparkles at one tick per 5s
 MANAGED_KEYS = ("spinnerTipsOverride", "spinnerVerbs")
 SPARK = "✨"
 VERB_MARK = "│"  # end-of-fact separator: Claude Code appends its own "…" to verbs
+# Inside a claude-spin pty session the wrapper substitutes this token in the
+# output stream, so the verb slot must hold the token — not actual facts.
+SENTINEL = "SMARTSPINNERFACT" * 4
+PTY_MODE = bool(os.environ.get("SMART_SPINNER_PTY"))
 
 
 def read_json(path):
@@ -156,7 +160,9 @@ def restore_tips(settings):
 
 def write_display(settings, state, verbs):
     restore_tips(settings)
-    if verbs:
+    if PTY_MODE:
+        settings["spinnerVerbs"] = {"mode": "replace", "verbs": [SENTINEL]}
+    elif verbs:
         settings["spinnerVerbs"] = {"mode": "replace", "verbs": verbs}
     atomic_write(SETTINGS_PATH, settings)
     atomic_write(STATE_PATH, state)
@@ -171,7 +177,8 @@ def rotate():
     ensure_backup(existed)
     state = read_json_or(STATE_PATH, {})
     batch = take_batch(facts, state, TIPS_PER_BATCH)
-    banner = state.pop("banner", None)
+    # In pty mode the wrapper itself shows and consumes the launch banner.
+    banner = None if PTY_MODE else state.pop("banner", None)
     sparkles = state.get("sparkle_left", 0)
     if isinstance(banner, str) and banner.strip():
         display = [f"{SPARK} {banner.strip()[:54]} {SPARK}"] + [sparkle(f) for f in batch]
@@ -212,6 +219,8 @@ def warmup(banner):
     ensure_backup(existed)
     line = f"{SPARK} {banner.strip()[:54]} {SPARK} {VERB_MARK}"
     state = read_json_or(STATE_PATH, {})
+    # Let the pty wrapper pick the banner up immediately, before facts exist.
+    state["banner"] = banner.strip()
     write_display(settings, state, [line])
     print("ok warming")
 

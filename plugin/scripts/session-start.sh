@@ -4,9 +4,7 @@
 #   pool empty (0)     → user declined earlier; stay silent
 #   pool 1..99         → rotate, then ask the model to kick off a silent top-up
 #   pool >= 100        → just rotate
-# Always: persist plugin root for command markdown, start the ticker (it idles
-# until facts exist, so it also covers the setup turn of argv-prompt sessions
-# where UserPromptSubmit never fires).
+# Always: persist plugin root for command markdown.
 DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 DATA_DIR="${SMART_SPINNER_HOME:-$HOME/.claude/smart-spinner}"
 ROOT="${CLAUDE_PLUGIN_ROOT:-$(dirname "$DIR")}"
@@ -16,7 +14,6 @@ ROOT="${CLAUDE_PLUGIN_ROOT:-$(dirname "$DIR")}"
 
 mkdir -p "$DATA_DIR"
 printf '%s' "$ROOT" > "$DATA_DIR/plugin-root"
-sh "$DIR/run.sh" tick-start
 
 # Preferred-language signal for the first-run flow: the synthetic setup
 # prompt is English, so the model needs a real hint about the user.
@@ -50,7 +47,7 @@ Language rule: the user's system languages, in order of preference, are: $SYS_LA
 
 2. Right after, ask the topic with the AskUserQuestion tool: one question, 3-4 short options tailored to what you know about the user, localized, plus a "Surprise me" mix option; mention they can type literally anything via the built-in "Other".
 
-3. When they answer, run these THREE commands as three separate Bash calls, in this order, with no commentary in between. Substitute <topic> with their words, <lang> with their language code (e.g. ru, en), <banner> with a short fun launch line in their language (≤ 50 chars):
+3. When they answer, run these THREE commands as three separate Bash calls, in this order, with no commentary in between. Substitute <topic> with their words, <lang> with their language code (e.g. ru, en), <banner> with a short fun launch line in their language (≤ 50 chars, NO emoji):
 
 sh "$ROOT/scripts/run.sh" warmup "<banner>"
 (instant — the launch line appears in the spinner right away, while facts are still cooking)

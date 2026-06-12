@@ -4,7 +4,8 @@
   "description": "Fascinating facts in your Claude Code spinner — about topics you love, in your language, generated locally by your own Claude.",
   "type": "module",
   "bin": {
-    "smart-spinner": "bin/install.mjs"
+    "smart-spinner": "bin/install.mjs",
+    "claude-spin": "bin/claude-spin"
   },
   "repository": "github:murahovsky/smart-spinner",
   "license": "MIT",
