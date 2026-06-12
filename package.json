@@ -1,6 +1,6 @@
 {
   "name": "sidequest-spinner",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "description": "Sidequest — fascinating facts in your Claude Code spinner, about topics you love, in your language, generated locally by your own Claude.",
   "type": "module",
   "bin": {

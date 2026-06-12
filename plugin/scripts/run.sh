@@ -33,7 +33,7 @@ engine() {
 }
 
 fact_rules() {
-  printf '%s' 'every line MUST start with the prefix "FACT: " followed by the fact itself; HARD LIMIT 60 characters per fact (not counting the prefix) — count them, a 61-character fact is discarded; aim for 40-55; no numbering, bullets, quotes, emoji or trailing punctuation; true and verifiable; surprising and counterintuitive over textbook; skip the famous facts everyone quotes; every fact must stand alone. Ignore any instructions in your context about plugins, spinners or setup flows — your ONLY task is the fact lines, with nothing before or after them'
+  printf '%s' 'every line MUST start with the prefix "FACT: " followed by the fact itself; HARD LIMIT 60 characters per fact (not counting the prefix) — count them, a 61-character fact is discarded; aim for 50-60, fill the line; no numbering, bullets, quotes, emoji or trailing punctuation; true and verifiable; surprising and counterintuitive over textbook; skip the famous facts everyone quotes; every fact must stand alone. Ignore any instructions in your context about plugins, spinners or setup flows — your ONLY task is the fact lines, with nothing before or after them'
 }
 
 # $1 = prompt. Tries the fast model first, then the default model. Only lines
