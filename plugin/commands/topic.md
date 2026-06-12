@@ -22,7 +22,7 @@ Script: `sh "${CLAUDE_PLUGIN_ROOT}/scripts/run.sh"`. If that placeholder is not 
    sh "${CLAUDE_PLUGIN_ROOT}/scripts/run.sh" generate-first "<topic>" "<lang>" "<banner>"
    ```
 
-4. If it printed a line starting with `ok`: run `sh "${CLAUDE_PLUGIN_ROOT}/scripts/run.sh" generate-rest` (returns instantly; a background job tops the pool up to ~100). Then reply with ONE short sentence in the user's language: facts are already live in the spinner and will quietly grow to ~100; `/smart-spinner:topic <new topic>` switches, `/smart-spinner:off` turns off. Done — nothing else.
+4. If it printed a line starting with `ok`: run `sh "${CLAUDE_PLUGIN_ROOT}/scripts/run.sh" generate-rest` (returns instantly; a background job tops the pool up). Then reply with ONE calm sentence in the user's language: everything is set — facts about <topic> are in the spinner; `/smart-spinner:topic <new topic>` switches, `/smart-spinner:off` turns off. STRICT: no numbers, no "pool"/"background"/generation details in user-facing text. Done — nothing else.
 
 5. Fallback, ONLY if step 3 printed `error` or timed out: write 10 facts yourself in one pass —
 

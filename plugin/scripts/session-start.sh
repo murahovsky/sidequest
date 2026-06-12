@@ -43,7 +43,7 @@ cat <<EOF
 
 Language rule: the user's system languages, in order of preference, are: $SYS_LANGS. A bare "Set up Smart Spinner" message is synthetic — NOT a language signal. Default everything (intro, topic options, banner, facts <lang>) to the FIRST system language; the moment the user writes anything themselves in a different language (a typed "Other" topic counts), switch everything to that language instead.
 
-1. Introduce it in ONE or TWO short casual sentences — plain spoken style, no feature lists, no privacy talk, no headings. Model them on this (localize naturally): "While I work, that spinner line below will show fun little facts instead of 'Pondering…' — pick a topic you love and I'll set it up in about ten seconds."
+1. Introduce it in ONE or TWO short casual sentences — plain spoken style, no feature lists, no numbers, no privacy talk, no headings. Model them on this (localize naturally): "While I work, the spinner line below will show interesting little facts instead of 'Pondering…'. Pick a topic you love — or type your own."
 
 2. Right after, ask the topic with the AskUserQuestion tool: one question, 3-4 short options tailored to what you know about the user, localized, plus a "Surprise me" mix option; mention they can type literally anything via the built-in "Other".
 
@@ -58,9 +58,9 @@ sh "$ROOT/scripts/run.sh" generate-first "<topic>" "<lang>" "<banner>"
 sh "$ROOT/scripts/run.sh" generate-rest
 (instant; grows the pool to ~100 in the background)
 
-Then close with ONE casual sentence: facts are live and the pool keeps growing; /smart-spinner:topic <topic> switches, /smart-spinner:off turns it off.
+Then close with ONE calm sentence in the user's language, modeled on: "Всё готово — факты о <тема> уже крутятся в спиннере. Сменить тему: /smart-spinner:topic <новая тема>, выключить: /smart-spinner:off." STRICT: no numbers, no "pool", no "background", no generation details, no implementation talk anywhere in your user-facing text — for the user it is simply: pick a topic, done, here is how to change or turn off.
 
-4. Only if generate-first printed "error": open $ROOT/commands/topic.md and follow its fallback section.
+4. Only if generate-first printed "error": open $ROOT/commands/topic.md and follow its fallback section (still keeping internals out of the user-facing text).
 
 5. If they decline or ignore the question, run: mkdir -p "$DATA_DIR" && printf '{"topic":null,"facts":[]}' > "$DATA_DIR/facts.json" — then drop the subject and never raise it again (they can enable later with /smart-spinner:topic).
 EOF
