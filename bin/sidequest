@@ -1,11 +1,17 @@
 #!/usr/bin/env python3
-"""claude-spin — run Claude Code with live spinner facts.
+"""sidequest — Claude Code with live spinner facts.
 
-Claude Code samples its spinner verb ONCE per user turn, so settings-based
-rotation can never change the visible fact mid-turn. This wrapper fixes that
-at the display layer: it sets the spinner verb to a unique 64-column sentinel
-token and, sitting on a pty between the terminal and Claude Code, substitutes
-that token in the output stream with the current fact.
+One binary does everything. On first run it installs the Sidequest plugin
+(marketplace + plugin, via the claude CLI) and opens a session that finishes
+setup; after that it is a transparent wrapper around `claude` that swaps a
+fresh fact into the spinner line every few seconds.
+
+Why a wrapper: Claude Code samples its spinner verb ONCE per user turn, so
+settings-based rotation can never change the visible fact mid-turn. This
+fixes it at the display layer: the verb in settings is a unique 64-column
+sentinel token and, sitting on a pty between the terminal and Claude Code,
+the wrapper substitutes that token in the output stream with the current
+fact.
 
 Ink (Claude Code's renderer) repaints the verb both as whole lines and as
 positioned partial slices (ESC[nG + a few chars), so a literal replace is not
@@ -13,9 +19,10 @@ enough: the filter tracks the cursor column and substitutes any slice of the
 sentinel positionally. The fact only advances when a full repaint passes by,
 keeping the on-screen line consistent.
 
-Usage: claude-spin [any claude args...]
-Env:   SMART_SPINNER_INTERVAL  seconds between facts (default 3)
-       SMART_SPINNER_CMD       child command (default: claude; for tests)
+Usage: sidequest [any claude args...]
+Env:   SIDEQUEST_INTERVAL  seconds between facts (default 3)
+       SIDEQUEST_CMD       child command (default: claude; for tests)
+       SIDEQUEST_REPO      plugin marketplace source (default: murahovsky/sidequest)
 """
 import fcntl
 import json
@@ -24,22 +31,27 @@ import pty
 import random
 import select
 import signal
+import subprocess
 import sys
 import tempfile
 import termios
 import time
 import tty
 
-SENTINEL = "SMARTSPINNERFACT" * 4  # 64 ascii columns, printed by Claude Code itself
+SENTINEL = ("SIDEQUESTFACT" * 5)[:64]  # 64 ascii columns, printed by Claude Code itself
 SENT_B = SENTINEL.encode()
 WIDTH = 64
 COL0 = 3  # Ink draws the verb starting at terminal column 3 (after "✳ ")
 HOME = os.path.expanduser("~")
-DATA_DIR = os.environ.get("SMART_SPINNER_HOME", os.path.join(HOME, ".claude", "smart-spinner"))
-SETTINGS_PATH = os.environ.get("SMART_SPINNER_SETTINGS", os.path.join(HOME, ".claude", "settings.json"))
-INTERVAL = float(os.environ.get("SMART_SPINNER_INTERVAL", "3"))
-CHILD = os.environ.get("SMART_SPINNER_CMD", "claude")
-IDLE_LINE = "Smart Spinner: facts will appear here once you pick a topic"
+DATA_DIR = os.environ.get("SIDEQUEST_HOME", os.path.join(HOME, ".claude", "sidequest"))
+SETTINGS_PATH = os.environ.get("SIDEQUEST_SETTINGS", os.path.join(HOME, ".claude", "settings.json"))
+INTERVAL = float(os.environ.get("SIDEQUEST_INTERVAL", "3"))
+CHILD = os.environ.get("SIDEQUEST_CMD", "claude")
+REPO = os.environ.get("SIDEQUEST_REPO", "murahovsky/sidequest")
+MARKETPLACE = "sidequest"
+PLUGIN = "sidequest"
+MARKER_PATH = os.path.join(DATA_DIR, "installed")
+IDLE_LINE = "Sidequest: facts will appear here once you pick a topic"
 
 
 def load_json(path, default):
@@ -53,11 +65,40 @@ def load_json(path, default):
 def atomic_write(path, obj):
     d = os.path.dirname(path)
     os.makedirs(d, exist_ok=True)
-    fd, tmp = tempfile.mkstemp(dir=d, prefix=".smart-spinner-")
+    fd, tmp = tempfile.mkstemp(dir=d, prefix=".sidequest-")
     with os.fdopen(fd, "w", encoding="utf-8") as f:
         json.dump(obj, f, ensure_ascii=False, indent=2)
         f.write("\n")
     os.replace(tmp, path)
+
+
+def claude_cli(*args):
+    return subprocess.run(
+        [CHILD, *args], stdin=subprocess.DEVNULL, capture_output=True, text=True
+    )
+
+
+def ensure_installed():
+    """First run only: register the marketplace and install the plugin."""
+    if os.path.exists(MARKER_PATH):
+        return
+    try:
+        if claude_cli("--version").returncode != 0:
+            raise OSError
+    except OSError:
+        sys.exit("sidequest: Claude Code CLI not found — install it first: https://code.claude.com")
+    print("Sidequest: first run — installing the plugin…")
+    for step in (("plugin", "marketplace", "add", REPO), ("plugin", "install", f"{PLUGIN}@{MARKETPLACE}")):
+        r = claude_cli(*step)
+        out = f"{r.stdout}{r.stderr}"
+        if r.returncode != 0 and "already" not in out.lower():
+            sys.exit(f"sidequest: `claude {' '.join(step)}` failed:\n{out.strip()}")
+    os.makedirs(DATA_DIR, exist_ok=True)
+    with open(MARKER_PATH, "w", encoding="utf-8") as f:
+        f.write("1\n")
+    print("✓ Sidequest installed — pick your topic in the session that opens.")
+    print("  Later: /sidequest:topic <topic> changes it, /sidequest:off turns it off.")
+    print("  Tip: alias claude=sidequest to make live facts the default.\n")
 
 
 def set_sentinel():
@@ -295,14 +336,20 @@ class SpinnerFilter:
 
 
 def main():
-    os.environ["SMART_SPINNER_PTY"] = "1"
+    ensure_installed()
+    child_args = sys.argv[1:]
+    # Claude can't speak first, so a fresh setup needs one user message baked in.
+    if not child_args and sys.stdin.isatty() and not os.path.exists(os.path.join(DATA_DIR, "facts.json")):
+        child_args = ["Set up Sidequest"]
+
+    os.environ["SIDEQUEST_PTY"] = "1"
     set_sentinel()
     pid, master = pty.fork()
     if pid == 0:
         try:
-            os.execvp(CHILD, [CHILD] + sys.argv[1:])
+            os.execvp(CHILD, [CHILD] + child_args)
         except OSError as e:
-            print(f"claude-spin: cannot exec {CHILD}: {e}", file=sys.stderr)
+            print(f"sidequest: cannot exec {CHILD}: {e}", file=sys.stderr)
             os._exit(127)
 
     def push_winsize(*_):
@@ -324,7 +371,7 @@ def main():
             old_attrs = None
 
     filt = SpinnerFilter(Facts())
-    dbg = os.environ.get("SMART_SPINNER_DEBUG")
+    dbg = os.environ.get("SIDEQUEST_DEBUG")
     status = 0
     try:
         while True:

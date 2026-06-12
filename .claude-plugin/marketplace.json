@@ -1,19 +1,19 @@
 {
-  "name": "smart-spinner",
+  "name": "sidequest",
   "owner": {
     "name": "Sasha Murahovsky",
     "url": "https://github.com/murahovsky"
   },
   "metadata": {
-    "description": "Smart Spinner marketplace — fascinating facts in your Claude Code spinner.",
-    "version": "0.1.0"
+    "description": "Sidequest marketplace — fascinating facts in your Claude Code spinner.",
+    "version": "0.2.0"
   },
   "plugins": [
     {
-      "name": "smart-spinner",
+      "name": "sidequest",
       "source": "./plugin",
       "description": "Replaces Claude Code's spinner text with fascinating one-line facts about a topic you love — generated locally by your own Claude, in your language. No server, no telemetry.",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "author": {
         "name": "Sasha Murahovsky",
         "url": "https://github.com/murahovsky"

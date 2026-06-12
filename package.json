@@ -1,13 +1,12 @@
 {
-  "name": "smart-spinner",
-  "version": "0.1.0",
-  "description": "Fascinating facts in your Claude Code spinner — about topics you love, in your language, generated locally by your own Claude.",
+  "name": "sidequest-spinner",
+  "version": "0.2.0",
+  "description": "Sidequest — fascinating facts in your Claude Code spinner, about topics you love, in your language, generated locally by your own Claude.",
   "type": "module",
   "bin": {
-    "smart-spinner": "bin/install.mjs",
-    "claude-spin": "bin/claude-spin"
+    "sidequest": "bin/sidequest"
   },
-  "repository": "github:murahovsky/smart-spinner",
+  "repository": "github:murahovsky/sidequest",
   "license": "MIT",
   "keywords": [
     "claude-code",

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Smart Spinner engine — Node mirror of smart_spinner.py, used when python3
+// Sidequest engine — Node mirror of sidequest.py, used when python3
 // is unavailable. Commands: rotate | tick | add <topic> <lang> [banner] |
 // count | off. rotate/tick/off stay silent (hook stdout is injected into
 // model context); add/count print so the model can verify success.
@@ -8,8 +8,8 @@ import os from "node:os";
 import path from "node:path";
 
 const HOME = os.homedir();
-const DATA_DIR = process.env.SMART_SPINNER_HOME || path.join(HOME, ".claude", "smart-spinner");
-const SETTINGS_PATH = process.env.SMART_SPINNER_SETTINGS || path.join(HOME, ".claude", "settings.json");
+const DATA_DIR = process.env.SIDEQUEST_HOME || path.join(HOME, ".claude", "sidequest");
+const SETTINGS_PATH = process.env.SIDEQUEST_SETTINGS || path.join(HOME, ".claude", "settings.json");
 const FACTS_PATH = path.join(DATA_DIR, "facts.json");
 const STATE_PATH = path.join(DATA_DIR, "state.json");
 const BACKUP_PATH = path.join(DATA_DIR, "settings.backup.json");
@@ -23,10 +23,10 @@ const SPARKLE_TICKS = 24;
 const MANAGED_KEYS = ["spinnerTipsOverride", "spinnerVerbs"];
 const SPARK = "✨";
 const VERB_MARK = "│"; // end-of-fact separator: Claude Code appends its own "…" to verbs
-// Inside a claude-spin pty session the wrapper substitutes this token in the
+// Inside a sidequest pty session the wrapper substitutes this token in the
 // output stream, so the verb slot must hold the token — not actual facts.
-const SENTINEL = "SMARTSPINNERFACT".repeat(4);
-const PTY_MODE = Boolean(process.env.SMART_SPINNER_PTY);
+const SENTINEL = "SIDEQUESTFACT".repeat(5).slice(0, 64);
+const PTY_MODE = Boolean(process.env.SIDEQUEST_PTY);
 
 const readJson = (p) => JSON.parse(fs.readFileSync(p, "utf8"));
 
@@ -42,7 +42,7 @@ function readJsonOr(p, fallback) {
 function atomicWrite(p, obj) {
   const dir = path.dirname(p);
   fs.mkdirSync(dir, { recursive: true });
-  const tmp = path.join(dir, `.smart-spinner-${process.pid}-${Math.random().toString(36).slice(2)}`);
+  const tmp = path.join(dir, `.sidequest-${process.pid}-${Math.random().toString(36).slice(2)}`);
   fs.writeFileSync(tmp, JSON.stringify(obj, null, 2) + "\n");
   fs.renameSync(tmp, p);
 }
@@ -236,7 +236,7 @@ function off() {
 const cmd = process.argv[2] || "rotate";
 if (cmd === "warmup") {
   try {
-    warmup(process.argv[3] || "Smart Spinner");
+    warmup(process.argv[3] || "Sidequest");
   } catch (e) {
     console.log(`error: ${e.constructor.name}: ${e.message}`);
     process.exit(1);

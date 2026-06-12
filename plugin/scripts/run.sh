@@ -1,5 +1,5 @@
 #!/bin/sh
-# Smart Spinner runner.
+# Sidequest runner.
 #   rotate | off                   silent engine commands (hooks)
 #   add <topic> <lang> [banner]    facts on stdin; prints a status line
 #   warmup <banner>                instant launch line in the spinner
@@ -11,12 +11,12 @@
 #   generate-rest [topic] [lang]   detached: background fast-model job that
 #                                  tops the pool up to ~100. Returns instantly.
 DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
-DATA_DIR="${SMART_SPINNER_HOME:-$HOME/.claude/smart-spinner}"
+DATA_DIR="${SIDEQUEST_HOME:-$HOME/.claude/sidequest}"
 LOG="$DATA_DIR/generate.log"
 
 # Inside a nested headless generation call our own hooks must stay inert:
 # no recursion into generate-*, no churning the parent's spinner settings.
-if [ -n "$SMART_SPINNER_NESTED" ]; then
+if [ -n "$SIDEQUEST_NESTED" ]; then
   case "${1:-rotate}" in
     rotate|tick|off|warmup|generate-first|generate-rest|generate-rest-loop)
       exit 0
@@ -26,9 +26,9 @@ fi
 
 engine() {
   if command -v python3 >/dev/null 2>&1; then
-    python3 "$DIR/smart_spinner.py" "$@" 2>/dev/null
+    python3 "$DIR/sidequest.py" "$@" 2>/dev/null
   elif command -v node >/dev/null 2>&1; then
-    node "$DIR/smart_spinner.mjs" "$@" 2>/dev/null
+    node "$DIR/sidequest.mjs" "$@" 2>/dev/null
   fi
 }
 
@@ -42,9 +42,9 @@ fact_rules() {
 # session setting (otherwise a 12-line task can think for half a minute);
 # disabling MCP and tools cuts startup roughly in half.
 gen_call() {
-  OUT=$(SMART_SPINNER_NESTED=1 CLAUDE_EFFORT=low MAX_THINKING_TOKENS=0 \
+  OUT=$(SIDEQUEST_NESTED=1 CLAUDE_EFFORT=low MAX_THINKING_TOKENS=0 \
     claude -p "$1" --model haiku --strict-mcp-config --mcp-config '{"mcpServers":{}}' --tools "" 2>>"$LOG")
-  [ -n "$OUT" ] || OUT=$(SMART_SPINNER_NESTED=1 CLAUDE_EFFORT=low MAX_THINKING_TOKENS=0 \
+  [ -n "$OUT" ] || OUT=$(SIDEQUEST_NESTED=1 CLAUDE_EFFORT=low MAX_THINKING_TOKENS=0 \
     claude -p "$1" --strict-mcp-config --mcp-config '{"mcpServers":{}}' --tools "" 2>>"$LOG")
   printf '%s\n' "$OUT" | grep '^FACT: ' | sed 's/^FACT: //'
 }
@@ -81,7 +81,7 @@ case "${1:-rotate}" in
     [ -z "$TOPIC" ] && exit 0
     [ -z "$FLANG" ] && FLANG=en
     R=0
-    while [ "$R" -lt "${SMART_SPINNER_ROUNDS:-4}" ]; do
+    while [ "$R" -lt "${SIDEQUEST_ROUNDS:-4}" ]; do
       R=$((R+1))
       C=$(engine count); case "$C" in ''|*[!0-9]*) C=0;; esac
       [ "$C" -ge 100 ] && break

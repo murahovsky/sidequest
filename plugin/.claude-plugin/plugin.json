@@ -1,12 +1,12 @@
 {
-  "name": "smart-spinner",
-  "version": "0.1.0",
+  "name": "sidequest",
+  "version": "0.2.0",
   "description": "Fascinating one-line facts in your Claude Code spinner — about topics you love, in your language, generated locally by your own Claude.",
   "author": {
     "name": "Sasha Murahovsky",
     "url": "https://github.com/murahovsky"
   },
-  "repository": "https://github.com/murahovsky/smart-spinner",
+  "repository": "https://github.com/murahovsky/sidequest",
   "license": "MIT",
   "keywords": [
     "spinner",

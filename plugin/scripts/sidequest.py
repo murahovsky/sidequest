@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Smart Spinner engine.
+"""Sidequest engine.
 
 Commands:
   rotate              Write the next 30-fact batch into Claude Code settings
@@ -31,8 +31,8 @@ import tempfile
 from datetime import date
 
 HOME = os.path.expanduser("~")
-DATA_DIR = os.environ.get("SMART_SPINNER_HOME", os.path.join(HOME, ".claude", "smart-spinner"))
-SETTINGS_PATH = os.environ.get("SMART_SPINNER_SETTINGS", os.path.join(HOME, ".claude", "settings.json"))
+DATA_DIR = os.environ.get("SIDEQUEST_HOME", os.path.join(HOME, ".claude", "sidequest"))
+SETTINGS_PATH = os.environ.get("SIDEQUEST_SETTINGS", os.path.join(HOME, ".claude", "settings.json"))
 FACTS_PATH = os.path.join(DATA_DIR, "facts.json")
 STATE_PATH = os.path.join(DATA_DIR, "state.json")
 BACKUP_PATH = os.path.join(DATA_DIR, "settings.backup.json")
@@ -46,10 +46,10 @@ SPARKLE_TICKS = 24  # ~2 minutes of launch sparkles at one tick per 5s
 MANAGED_KEYS = ("spinnerTipsOverride", "spinnerVerbs")
 SPARK = "✨"
 VERB_MARK = "│"  # end-of-fact separator: Claude Code appends its own "…" to verbs
-# Inside a claude-spin pty session the wrapper substitutes this token in the
+# Inside a sidequest pty session the wrapper substitutes this token in the
 # output stream, so the verb slot must hold the token — not actual facts.
-SENTINEL = "SMARTSPINNERFACT" * 4
-PTY_MODE = bool(os.environ.get("SMART_SPINNER_PTY"))
+SENTINEL = ("SIDEQUESTFACT" * 5)[:64]
+PTY_MODE = bool(os.environ.get("SIDEQUEST_PTY"))
 
 
 def read_json(path):
@@ -68,7 +68,7 @@ def read_json_or(path, default):
 def atomic_write(path, obj):
     d = os.path.dirname(path)
     os.makedirs(d, exist_ok=True)
-    fd, tmp = tempfile.mkstemp(dir=d, prefix=".smart-spinner-")
+    fd, tmp = tempfile.mkstemp(dir=d, prefix=".sidequest-")
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             json.dump(obj, f, ensure_ascii=False, indent=2)
@@ -98,7 +98,7 @@ def ensure_backup(settings_existed):
     with open(SETTINGS_PATH, "rb") as src:
         raw = src.read()
     os.makedirs(DATA_DIR, exist_ok=True)
-    fd, tmp = tempfile.mkstemp(dir=DATA_DIR, prefix=".smart-spinner-")
+    fd, tmp = tempfile.mkstemp(dir=DATA_DIR, prefix=".sidequest-")
     with os.fdopen(fd, "wb") as f:
         f.write(raw)
     os.replace(tmp, BACKUP_PATH)
@@ -277,7 +277,7 @@ def main():
     cmd = sys.argv[1] if len(sys.argv) > 1 else "rotate"
     if cmd == "warmup":
         try:
-            warmup(sys.argv[2] if len(sys.argv) > 2 else "Smart Spinner")
+            warmup(sys.argv[2] if len(sys.argv) > 2 else "Sidequest")
         except Exception as e:  # noqa: BLE001
             print(f"error: {type(e).__name__}: {e}")
             sys.exit(1)
