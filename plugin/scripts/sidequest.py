@@ -51,7 +51,7 @@ SPARK = "✨"
 VERB_MARK = "│"  # end-of-fact separator: Claude Code appends its own "…" to verbs
 # Inside a sidequest pty session the wrapper substitutes this token in the
 # output stream, so the verb slot must hold the token — not actual facts.
-SENTINEL = ("SIDEQUESTFACT" * 5)[:64]
+SENTINEL = "SIDEQUESTFACT0SIDEQUESTFACT1SIDEQUESTFACT2SIDEQUESTFACT3SIDEQUES"
 PTY_MODE = bool(os.environ.get("SIDEQUEST_PTY"))
 
 
@@ -215,15 +215,19 @@ def tick():
     write_display(settings, state, [f"{verb} {VERB_MARK}"] if verb else None)
 
 
-def warmup(banner):
-    """Instant launch feedback: put a banner into the spinner before any
-    facts exist, so the generation phase itself already looks alive."""
+def warmup(banner, lines=()):
+    """Instant launch feedback: put a banner (plus rotating "loading" teasers
+    for the pty wrapper) into the spinner before any facts exist, so the
+    generation phase itself already looks alive."""
     settings, existed = load_settings()
     ensure_backup(existed)
     line = f"{SPARK} {banner.strip()[:54]} {SPARK} {VERB_MARK}"
     state = read_json_or(STATE_PATH, {})
-    # Let the pty wrapper pick the banner up immediately, before facts exist.
+    # Let the pty wrapper pick these up immediately, before facts exist.
     state["banner"] = banner.strip()
+    warm = [" ".join(x.split())[:64] for x in lines if isinstance(x, str) and x.strip()]
+    if warm:
+        state["warmup_lines"] = warm[:6]
     write_display(settings, state, [line])
     print("ok warming")
 
@@ -280,7 +284,7 @@ def main():
     cmd = sys.argv[1] if len(sys.argv) > 1 else "rotate"
     if cmd == "warmup":
         try:
-            warmup(sys.argv[2] if len(sys.argv) > 2 else "Sidequest")
+            warmup(sys.argv[2] if len(sys.argv) > 2 else "Sidequest", sys.argv[3:])
         except Exception as e:  # noqa: BLE001
             print(f"error: {type(e).__name__}: {e}")
             sys.exit(1)

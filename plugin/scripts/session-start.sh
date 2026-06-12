@@ -47,10 +47,10 @@ Language rule: the user's system languages, in order of preference, are: $SYS_LA
 
 2. Right after, ask the topic with the AskUserQuestion tool: one question, 3-4 short options tailored to what you know about the user, localized, plus a "Surprise me" mix option; mention they can type literally anything via the built-in "Other".
 
-3. When they answer, run these THREE commands as three separate Bash calls, in this order, with no commentary in between. Substitute <topic> with their words, <lang> with their language code (e.g. ru, en), <banner> with a short fun launch line in their language (≤ 50 chars, NO emoji):
+3. When they answer, run these THREE commands as three separate Bash calls, in this order, with no commentary in between. Substitute <topic> with their words, <lang> with their language code (e.g. ru, en), <banner> with a short fun launch line in their language (≤ 50 chars, NO emoji), and <t1>..<t3> with three DIFFERENT short playful "loading"-style lines about the topic, same language, ≤ 50 chars each, no emoji (e.g. for space: "Прогреваю ракетные факты", "Сканирую космос на интересности", "Калибрую телескопы"):
 
-sh "$ROOT/scripts/run.sh" warmup "<banner>"
-(instant — the launch line appears in the spinner right away, while facts are still cooking)
+sh "$ROOT/scripts/run.sh" warmup "<banner>" "<t1>" "<t2>" "<t3>"
+(instant — the launch line and rotating loading-teasers appear in the spinner right away, while facts are still cooking)
 
 sh "$ROOT/scripts/run.sh" generate-first "<topic>" "<lang>" "<banner>"
 (~10 s, prints "ok ..." — the first facts are then live)

@@ -27,7 +27,7 @@ const SPARK = "✨";
 const VERB_MARK = "│"; // end-of-fact separator: Claude Code appends its own "…" to verbs
 // Inside a sidequest pty session the wrapper substitutes this token in the
 // output stream, so the verb slot must hold the token — not actual facts.
-const SENTINEL = "SIDEQUESTFACT".repeat(5).slice(0, 64);
+const SENTINEL = "SIDEQUESTFACT0SIDEQUESTFACT1SIDEQUESTFACT2SIDEQUESTFACT3SIDEQUES";
 const PTY_MODE = Boolean(process.env.SIDEQUEST_PTY);
 
 const readJson = (p) => JSON.parse(fs.readFileSync(p, "utf8"));
@@ -171,12 +171,15 @@ function tick() {
   writeDisplay(settings, state, verb ? [`${verb} ${VERB_MARK}`] : null);
 }
 
-// Instant launch feedback: a banner in the spinner before any facts exist.
-function warmup(banner) {
+// Instant launch feedback: a banner plus rotating "loading" teasers in the
+// spinner before any facts exist (the pty wrapper picks them up immediately).
+function warmup(banner, lines) {
   const { settings, existed } = loadSettings();
   ensureBackup(existed);
   const state = readJsonOr(STATE_PATH, {});
-  state.banner = banner.trim(); // the pty wrapper picks this up immediately
+  state.banner = banner.trim();
+  const warm = (lines || []).filter((x) => typeof x === "string" && x.trim()).map((x) => x.split(/\s+/).join(" ").slice(0, 64));
+  if (warm.length) state.warmup_lines = warm.slice(0, 6);
   writeDisplay(settings, state, [`${SPARK} ${banner.trim().slice(0, 54)} ${SPARK} ${VERB_MARK}`]);
   console.log("ok warming");
 }
@@ -238,7 +241,7 @@ function off() {
 const cmd = process.argv[2] || "rotate";
 if (cmd === "warmup") {
   try {
-    warmup(process.argv[3] || "Sidequest");
+    warmup(process.argv[3] || "Sidequest", process.argv.slice(4));
   } catch (e) {
     console.log(`error: ${e.constructor.name}: ${e.message}`);
     process.exit(1);

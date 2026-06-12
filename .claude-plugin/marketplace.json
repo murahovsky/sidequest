@@ -6,14 +6,14 @@
   },
   "metadata": {
     "description": "Sidequest marketplace — fascinating facts in your Claude Code spinner.",
-    "version": "0.3.4"
+    "version": "0.4.0"
   },
   "plugins": [
     {
       "name": "sidequest",
       "source": "./plugin",
       "description": "Replaces Claude Code's spinner text with fascinating one-line facts about a topic you love — generated locally by your own Claude, in your language. No server, no telemetry.",
-      "version": "0.3.4",
+      "version": "0.4.0",
       "author": {
         "name": "Sasha Murahovsky",
         "url": "https://github.com/murahovsky"

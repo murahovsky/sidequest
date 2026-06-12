@@ -41,7 +41,10 @@ import time
 import tty
 import unicodedata
 
-SENTINEL = ("SIDEQUESTFACT" * 5)[:64]  # 64 ascii columns, printed by Claude Code itself
+# 64 ascii columns, printed by Claude Code itself. APERIODIC on purpose: the
+# digits make every >=14-char slice identify its own offset, so a repaint of
+# the verb's tail can never be mistaken for the verb's start.
+SENTINEL = "SIDEQUESTFACT0SIDEQUESTFACT1SIDEQUESTFACT2SIDEQUESTFACT3SIDEQUES"
 SENT_B = SENTINEL.encode()
 WIDTH = 64
 # A run must match the sentinel from index 0 for at least ANCHOR_RUN chars to
@@ -149,6 +152,8 @@ class Facts:
         self.banner = None
         self.banner_left = 2  # facts shown under the banner before it retires
         self.banner_done = False
+        self.warm = []   # rotating "loading" teasers while facts are generating
+        self.warm_i = 0
 
     def refresh(self):
         path = os.path.join(DATA_DIR, "facts.json")
@@ -172,24 +177,34 @@ class Facts:
             b = st.get("banner") if isinstance(st, dict) else None
             if isinstance(b, str) and b.strip():
                 self.banner = " ".join(b.split())
+            w = st.get("warmup_lines") if isinstance(st, dict) else None
+            if isinstance(w, list):
+                self.warm = [" ".join(x.split())[:WIDTH] for x in w if isinstance(x, str) and x.strip()]
 
     def _retire_banner(self):
         self.banner_done = True
         self.banner = None
         p = os.path.join(DATA_DIR, "state.json")
         st = load_json(p, None)
-        if isinstance(st, dict) and "banner" in st:
+        if isinstance(st, dict) and ("banner" in st or "warmup_lines" in st):
             st.pop("banner", None)
+            st.pop("warmup_lines", None)
             try:
                 atomic_write(p, st)
             except OSError:
                 pass
+        self.warm = []
 
     def next_line(self):
         self.refresh()
         if self.banner and not self.banner_done:
             if not self.pool:
-                return self.banner  # generation still running — hold the launch line
+                # generation still running — rotate the launch line with the
+                # "loading" teasers so the spinner is already alive
+                seq = [self.banner] + self.warm
+                line = seq[self.warm_i % len(seq)]
+                self.warm_i += 1
+                return line
             if self.banner_left > 0:
                 self.banner_left -= 1
                 return self.banner
@@ -275,6 +290,12 @@ class SpinnerFilter:
         self.hold += tail
         return out
 
+    def idle_flush(self):
+        """The stream went quiet with a fragment buffered: resolve it now."""
+        out = bytearray()
+        self._flush(out)
+        return bytes(out)
+
     def finish(self):
         """Flush whatever is still buffered (child exited mid-paint)."""
         out = bytearray()
@@ -304,10 +325,12 @@ class SpinnerFilter:
 
     def _choice(self, definitive):
         L = self.pend_chars
-        if 0 in self.cands and L >= ANCHOR_RUN:
-            return 0
+        # The learned alignment is a strong prior — prefer it over re-anchoring,
+        # or a tail slice that happens to look like a start would move the anchor.
         if self.anch_c is not None and self.anch_c in self.cands and (definitive or L >= SURE_RUN):
             return self.anch_c
+        if 0 in self.cands and L >= ANCHOR_RUN:
+            return 0
         return None
 
     def _flush(self, out, poison=False):
@@ -548,6 +571,8 @@ def main():
                 ready, _, _ = select.select([0, master], [], [], 0.25)
             except InterruptedError:
                 continue
+            if not ready and filt.pend:
+                os.write(1, filt.idle_flush())
             if 0 in ready:
                 try:
                     data = os.read(0, 65536)
