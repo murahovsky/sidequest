@@ -145,8 +145,17 @@ def sparkle(line):
     return f"{SPARK} {line}" if len(line) <= MAX_TIP_LEN - 2 else line
 
 
-def write_display(settings, state, tips, verbs):
-    settings["spinnerTipsOverride"] = {"tips": tips, "excludeDefault": True}
+def restore_tips(settings):
+    """We no longer touch the tips line; clean up what older versions set."""
+    backup = read_json_or(BACKUP_PATH, {})
+    if "spinnerTipsOverride" in backup:
+        settings["spinnerTipsOverride"] = backup["spinnerTipsOverride"]
+    else:
+        settings.pop("spinnerTipsOverride", None)
+
+
+def write_display(settings, state, verbs):
+    restore_tips(settings)
     if verbs:
         settings["spinnerVerbs"] = {"mode": "replace", "verbs": verbs}
     atomic_write(SETTINGS_PATH, settings)
@@ -165,15 +174,15 @@ def rotate():
     banner = state.pop("banner", None)
     sparkles = state.get("sparkle_left", 0)
     if isinstance(banner, str) and banner.strip():
-        display = [f"{SPARK} {banner.strip()[:72]} {SPARK}"] + [sparkle(f) for f in batch]
+        display = [f"{SPARK} {banner.strip()[:54]} {SPARK}"] + [sparkle(f) for f in batch]
     elif isinstance(sparkles, int) and sparkles > 0:
         display = [sparkle(f) for f in batch]
         state["sparkle_left"] = sparkles - 1
     else:
         display = batch
     verbs = [f"{f} {VERB_MARK}" for f in display if len(f) <= MAX_VERB_LEN]
-    write_display(settings, state, display, verbs if len(verbs) >= 5 else None)
-    return len(display)
+    write_display(settings, state, verbs if len(verbs) >= 5 else None)
+    return len(verbs)
 
 
 def tick():
@@ -193,7 +202,18 @@ def tick():
         batch = [sparkle(f) for f in batch]
         state["sparkle_left"] = sparkles - 1
     verb = next((f for f in batch if len(f) <= MAX_VERB_LEN), None)
-    write_display(settings, state, batch, [f"{verb} {VERB_MARK}"] if verb else None)
+    write_display(settings, state, [f"{verb} {VERB_MARK}"] if verb else None)
+
+
+def warmup(banner):
+    """Instant launch feedback: put a banner into the spinner before any
+    facts exist, so the generation phase itself already looks alive."""
+    settings, existed = load_settings()
+    ensure_backup(existed)
+    line = f"{SPARK} {banner.strip()[:54]} {SPARK} {VERB_MARK}"
+    state = read_json_or(STATE_PATH, {})
+    write_display(settings, state, [line])
+    print("ok warming")
 
 
 def add(topic, lang, banner=None):
@@ -246,7 +266,13 @@ def off():
 
 def main():
     cmd = sys.argv[1] if len(sys.argv) > 1 else "rotate"
-    if cmd == "add":
+    if cmd == "warmup":
+        try:
+            warmup(sys.argv[2] if len(sys.argv) > 2 else "Smart Spinner")
+        except Exception as e:  # noqa: BLE001
+            print(f"error: {type(e).__name__}: {e}")
+            sys.exit(1)
+    elif cmd == "add":
         # Verbose on purpose: run via the Bash tool, so the model must see
         # success or the exact failure (e.g. a sandbox blocking the write).
         try:

@@ -50,15 +50,18 @@ Language rule: the user's system languages, in order of preference, are: $SYS_LA
 
 2. Right after, ask the topic with the AskUserQuestion tool: one question, 3-4 short options tailored to what you know about the user, localized, plus a "Surprise me" mix option; mention they can type literally anything via the built-in "Other".
 
-3. When they answer, run EXACTLY this, substituting <topic> with their words, <lang> with their language code (e.g. ru, en), <banner> with a short fun launch line in their language (≤ 50 chars):
+3. When they answer, run these THREE commands as three separate Bash calls, in this order, with no commentary in between. Substitute <topic> with their words, <lang> with their language code (e.g. ru, en), <banner> with a short fun launch line in their language (≤ 50 chars):
+
+sh "$ROOT/scripts/run.sh" warmup "<banner>"
+(instant — the launch line appears in the spinner right away, while facts are still cooking)
 
 sh "$ROOT/scripts/run.sh" generate-first "<topic>" "<lang>" "<banner>"
-
-It takes ~10 s and prints "ok ..." — the first facts are then ALREADY live in the spinner. Immediately run:
+(~10 s, prints "ok ..." — the first facts are then live)
 
 sh "$ROOT/scripts/run.sh" generate-rest
+(instant; grows the pool to ~100 in the background)
 
-(returns instantly; grows the pool to ~100 in the background). Then close with ONE casual sentence: facts are live and the pool keeps growing; /smart-spinner:topic <topic> switches, /smart-spinner:off turns it off.
+Then close with ONE casual sentence: facts are live and the pool keeps growing; /smart-spinner:topic <topic> switches, /smart-spinner:off turns it off.
 
 4. Only if generate-first printed "error": open $ROOT/commands/topic.md and follow its fallback section.
 

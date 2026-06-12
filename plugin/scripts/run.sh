@@ -23,7 +23,7 @@ MAX_TICKS="${SMART_SPINNER_MAX_TICKS:-360}"
 # no recursion into generate-*, and no touching the parent session's ticker.
 if [ -n "$SMART_SPINNER_NESTED" ]; then
   case "${1:-rotate}" in
-    rotate|tick|tick-start|tick-stop|tick-loop|off|generate-first|generate-rest|generate-rest-loop)
+    rotate|tick|tick-start|tick-stop|tick-loop|off|warmup|generate-first|generate-rest|generate-rest-loop)
       exit 0
       ;;
   esac

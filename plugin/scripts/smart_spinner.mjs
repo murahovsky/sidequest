@@ -107,8 +107,15 @@ function takeBatch(facts, state, n) {
 
 const sparkleLine = (f) => (f.length <= MAX_TIP_LEN - 2 ? `${SPARK} ${f}` : f);
 
-function writeDisplay(settings, state, tips, verbs) {
-  settings.spinnerTipsOverride = { tips, excludeDefault: true };
+// We no longer touch the tips line; clean up what older versions set.
+function restoreTips(settings) {
+  const backup = readJsonOr(BACKUP_PATH, {});
+  if ("spinnerTipsOverride" in backup) settings.spinnerTipsOverride = backup.spinnerTipsOverride;
+  else delete settings.spinnerTipsOverride;
+}
+
+function writeDisplay(settings, state, verbs) {
+  restoreTips(settings);
   if (verbs) settings.spinnerVerbs = { mode: "replace", verbs };
   atomicWrite(SETTINGS_PATH, settings);
   atomicWrite(STATE_PATH, state);
@@ -125,7 +132,7 @@ function rotate() {
   delete state.banner;
   let display;
   if (banner) {
-    display = [`${SPARK} ${banner.slice(0, 72)} ${SPARK}`, ...batch.map(sparkleLine)];
+    display = [`${SPARK} ${banner.slice(0, 54)} ${SPARK}`, ...batch.map(sparkleLine)];
   } else if (Number.isInteger(state.sparkle_left) && state.sparkle_left > 0) {
     display = batch.map(sparkleLine);
     state.sparkle_left -= 1;
@@ -133,8 +140,8 @@ function rotate() {
     display = batch;
   }
   const verbs = display.filter((f) => f.length <= MAX_VERB_LEN).map((f) => `${f} ${VERB_MARK}`);
-  writeDisplay(settings, state, display, verbs.length >= 5 ? verbs : null);
-  return display.length;
+  writeDisplay(settings, state, verbs.length >= 5 ? verbs : null);
+  return verbs.length;
 }
 
 function tick() {
@@ -153,7 +160,16 @@ function tick() {
     state.sparkle_left -= 1;
   }
   const verb = batch.find((f) => f.length <= MAX_VERB_LEN);
-  writeDisplay(settings, state, batch, verb ? [`${verb} ${VERB_MARK}`] : null);
+  writeDisplay(settings, state, verb ? [`${verb} ${VERB_MARK}`] : null);
+}
+
+// Instant launch feedback: a banner in the spinner before any facts exist.
+function warmup(banner) {
+  const { settings, existed } = loadSettings();
+  ensureBackup(existed);
+  const state = readJsonOr(STATE_PATH, {});
+  writeDisplay(settings, state, [`${SPARK} ${banner.trim().slice(0, 54)} ${SPARK} ${VERB_MARK}`]);
+  console.log("ok warming");
 }
 
 function add(topic, lang, banner) {
@@ -211,7 +227,14 @@ function off() {
 }
 
 const cmd = process.argv[2] || "rotate";
-if (cmd === "add") {
+if (cmd === "warmup") {
+  try {
+    warmup(process.argv[3] || "Smart Spinner");
+  } catch (e) {
+    console.log(`error: ${e.constructor.name}: ${e.message}`);
+    process.exit(1);
+  }
+} else if (cmd === "add") {
   try {
     add(process.argv[3] || "mixed", process.argv[4] || "en", process.argv[5]);
   } catch (e) {

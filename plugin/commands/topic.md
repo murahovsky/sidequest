@@ -15,9 +15,10 @@ Script: `sh "${CLAUDE_PLUGIN_ROOT}/scripts/run.sh"`. If that placeholder is not 
 
 2. Set `<lang>` = the language the user converses in (BCP-47, e.g. `ru`); `<banner>` = a short launch line in that language, ≤ 50 chars, e.g. "Smart Spinner включён: факты о космосе".
 
-3. Run (takes ~10 s — it calls a fast model for the first 12 facts and puts them live with a ✨ launch effect):
+3. Run as two separate Bash calls, no commentary in between — first instant launch feedback, then generation (~10 s, prints `ok ...`):
 
    ```sh
+   sh "${CLAUDE_PLUGIN_ROOT}/scripts/run.sh" warmup "<banner>"
    sh "${CLAUDE_PLUGIN_ROOT}/scripts/run.sh" generate-first "<topic>" "<lang>" "<banner>"
    ```
 
@@ -31,4 +32,4 @@ Script: `sh "${CLAUDE_PLUGIN_ROOT}/scripts/run.sh"`. If that placeholder is not 
    FACTS
    ```
 
-   Rules: ≤ 64 chars per line (hard max 80), true and verifiable, surprising over textbook, standalone, no numbering/quotes/emoji/trailing punctuation, no near-duplicates. Verify the `ok` status, then still run `generate-rest`. If `add` also errors: as a last resort set the keys via the Edit tool in `~/.claude/settings.json` (`spinnerTipsOverride: {"tips": [banner + facts], "excludeDefault": true}`, `spinnerVerbs: {"mode": "replace", "verbs": [facts ≤ 60 chars]}`, preserving all other keys) and Write the pool to `~/.claude/smart-spinner/facts.json` (`{"topic", "language", "facts"}`).
+   Rules: ≤ 64 chars per line (hard max 80), true and verifiable, surprising over textbook, standalone, no numbering/quotes/emoji/trailing punctuation, no near-duplicates. Verify the `ok` status, then still run `generate-rest`. If `add` also errors: as a last resort set `spinnerVerbs: {"mode": "replace", "verbs": [facts ≤ 60 chars]}` via the Edit tool in `~/.claude/settings.json` (preserving all other keys, not touching `spinnerTipsOverride`) and Write the pool to `~/.claude/smart-spinner/facts.json` (`{"topic", "language", "facts"}`).
