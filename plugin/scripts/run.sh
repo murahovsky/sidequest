@@ -43,7 +43,7 @@ fact_rules() {
 # disabling MCP and tools cuts startup roughly in half.
 gen_call() {
   OUT=$(SIDEQUEST_NESTED=1 CLAUDE_EFFORT=low MAX_THINKING_TOKENS=0 \
-    claude -p "$1" --model haiku --strict-mcp-config --mcp-config '{"mcpServers":{}}' --tools "" 2>>"$LOG")
+    claude -p "$1" --model sonnet --strict-mcp-config --mcp-config '{"mcpServers":{}}' --tools "" 2>>"$LOG")
   [ -n "$OUT" ] || OUT=$(SIDEQUEST_NESTED=1 CLAUDE_EFFORT=low MAX_THINKING_TOKENS=0 \
     claude -p "$1" --strict-mcp-config --mcp-config '{"mcpServers":{}}' --tools "" 2>>"$LOG")
   printf '%s\n' "$OUT" | grep '^FACT: ' | sed 's/^FACT: //'
